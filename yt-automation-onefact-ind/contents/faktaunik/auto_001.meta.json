@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Es bisa “nyanyi”",
+  "hook": "Es kok bisa bunyi kayak musik?",
+  "cta": "Mau dengar suara alam yang aneh lagi?",
+  "query": "",
+  "bg": {
+    "query": "frozen lake ice cracks realistic photo",
+    "variants": [
+      "ice on lake",
+      "winter frozen lake"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

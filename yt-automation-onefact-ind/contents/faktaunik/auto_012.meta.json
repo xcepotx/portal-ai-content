@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Ada awan yang bentuknya seperti gelombang",
+  "hook": "Langit bisa kelihatan kayak lautan!",
+  "cta": "Pernah lihat awan yang bikin merinding?",
+  "query": "",
+  "bg": {
+    "query": "wave clouds realistic photo",
+    "variants": [
+      "undulatus clouds",
+      "wave pattern clouds"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

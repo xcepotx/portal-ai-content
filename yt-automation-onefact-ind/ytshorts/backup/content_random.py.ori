@@ -1,0 +1,235 @@
+# ytshorts/content_random.py
+from __future__ import annotations
+
+import os
+import json
+import random
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+
+def _ensure_dir(p: str) -> None:
+    os.makedirs(p, exist_ok=True)
+
+
+def load_template(template_path: str) -> Dict[str, Any]:
+    with open(template_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def next_auto_index(out_dir: str, prefix: str = "auto_") -> int:
+    _ensure_dir(out_dir)
+    existing = sorted(Path(out_dir).glob(f"{prefix}*.txt"))
+    best = 0
+    for p in existing:
+        try:
+            n = int(p.stem.replace(prefix, ""))
+            best = max(best, n)
+        except Exception:
+            pass
+    return best + 1
+
+
+def _normalize_sentence(s: str) -> str:
+    s = (s or "").strip()
+    if not s:
+        return ""
+    s = " ".join(s.split())
+    if s[-1] not in ".!?":
+        s += "."
+    return s
+
+
+def _pick_fact_pool(tpl: Dict[str, Any]) -> List[Dict[str, Any]]:
+    facts = tpl.get("facts", []) or []
+    # filter minimal valid facts
+    out = []
+    for f in facts:
+        if not isinstance(f, dict):
+            continue
+        # minimal requirement: fact text OR lines exists
+        if (f.get("fact") or "").strip() or (f.get("lines") or []):
+            out.append(f)
+    return out
+
+
+def build_txt_style_v3(tpl: Dict[str, Any], fact: Dict[str, Any], *, topic: str, seconds: int) -> str:
+    """
+    Output:
+    #TITLE / #TOPIC / #SECONDS
+    (blank)
+    hook
+    FAKTA: ...
+    lines (max 2-3)
+    cta
+    """
+    title = (tpl.get("title") or f"Fakta {topic}").strip()
+
+    hook = _normalize_sentence(fact.get("hook") or "Hari ini satu fakta unik yang jarang dibahas")
+    cta = _normalize_sentence(fact.get("cta") or "Kalau mau topik lain, tulis di komentar")
+
+    # one-liner utama
+    one_liner = (fact.get("fact") or "").strip()
+    lines = [str(x).strip() for x in (fact.get("lines") or []) if str(x).strip()]
+
+    if not one_liner:
+        # fallback: pakai line pertama atau title
+        one_liner = (lines[0] if lines else (fact.get("title") or "")).strip()
+
+    one_liner = " ".join(one_liner.split()).strip()
+    if one_liner and one_liner[-1] not in ".!?":
+        one_liner += "."
+
+    # penjelasan: ambil 2 kalimat setelah fakta utama (biar pas 25-35 detik)
+    expl: List[str] = []
+    if lines:
+        rest = lines[1:] if len(lines) > 1 else []
+        expl = rest[:2]  # <= tuning: 2 kalimat
+    expl = [_normalize_sentence(x) for x in expl if x.strip()]
+
+    header = [
+        f"#TITLE: {title}",
+        f"#TOPIC: {topic}",
+        f"#SECONDS: {int(seconds)}",
+        "",
+    ]
+    body = [hook, f"FAKTA: {one_liner}"] + expl + [cta]
+    return "\n".join(header + body).strip() + "\n"
+
+
+def _extract_bg_meta(fact: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    JSON v3: field 'bg' recommended.
+    Accepts fallback to 'query' if you still have older templates.
+    """
+    bg = fact.get("bg")
+
+    # Backward compatible: if template still uses "query"
+    if not bg and (fact.get("query") or "").strip():
+        bg = {"query": (fact.get("query") or "").strip(), "variants": [], "avoid": []}
+
+    if not isinstance(bg, dict):
+        bg = {}
+
+    # normalize
+    query = (bg.get("query") or "").strip()
+    variants = bg.get("variants") or []
+    avoid = bg.get("avoid") or []
+
+    if not isinstance(variants, list):
+        variants = []
+    if not isinstance(avoid, list):
+        avoid = []
+
+    variants = [str(x).strip() for x in variants if str(x).strip()]
+    avoid = [str(x).strip() for x in avoid if str(x).strip()]
+
+    return {
+        "query": query,
+        "variants": variants,
+        "avoid": avoid,
+    }
+
+
+def write_random_contents_v3(
+    contents_root: str,
+    topic: str,
+    template_path: str,
+    n: int = 5,
+    *,
+    seed: Optional[int] = None,
+    unique: bool = True,
+) -> List[str]:
+    """
+    Generate N file txt random (unik) untuk JSON v3:
+    - contents/<topic>/auto_###.txt
+    - contents/<topic>/auto_###.meta.json  (bg mapping untuk image_fetcher)
+    """
+    topic_dir = os.path.join(contents_root, topic)
+    _ensure_dir(topic_dir)
+
+    tpl = load_template(template_path)
+    facts = _pick_fact_pool(tpl)
+    if not facts:
+        raise ValueError("Template v3 tidak punya 'facts' valid atau kosong.")
+
+    if unique and n > len(facts):
+        raise ValueError(
+            f"Facts di template cuma {len(facts)}, tapi kamu minta generate {n}. "
+            f"Tambah facts dulu atau kecilkan --generate."
+        )
+
+    seconds = int(tpl.get("seconds", 30) or 30)
+    rnd = random.Random(seed)
+
+    picked: List[Dict[str, Any]]
+    if unique:
+        picked = rnd.sample(facts, n)
+    else:
+        picked = [rnd.choice(facts) for _ in range(n)]
+
+    start_idx = next_auto_index(topic_dir, prefix="auto_")
+
+    created: List[str] = []
+    for i, fact in enumerate(picked):
+        idx = start_idx + i
+        base = os.path.join(topic_dir, f"auto_{idx:03d}")
+
+        txt_path = base + ".txt"
+        meta_path = base + ".meta.json"
+
+        # TXT
+        txt = build_txt_from_fact_v3(tpl, fact, topic=topic, seconds=seconds)
+        with open(txt_path, "w", encoding="utf-8") as f:
+            f.write(txt)
+
+        # META: simpan bg mapping supaya fetcher bisa ambil query/variants dari template
+        bg_meta = _extract_bg_meta(fact)
+
+        meta = {
+            "topic": topic,
+            "seconds": seconds,
+            "title": (tpl.get("title") or f"Fakta {topic}").strip(),
+            "fact_title": (fact.get("title") or "").strip(),
+            "hook": (fact.get("hook") or "").strip(),
+            "cta": (fact.get("cta") or "").strip(),
+            "bg": bg_meta,  # <-- inilah kunci v3
+        }
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
+
+        created.append(txt_path)
+
+    return created
+
+
+# backward-compatible alias: kalau main.py masih import write_random_contents
+def write_random_contents(contents_root: str, topic: str, template_path: str, n: int = 5) -> List[str]:
+    """
+    Default: v3 mode.
+    Kalau mau seed/unique control, panggil write_random_contents_v3 langsung.
+    """
+    return write_random_contents_v3(contents_root, topic, template_path, n=n, seed=None, unique=True)
+
+def build_txt_from_fact_v3(tpl: dict, fact: dict, topic: str, seconds: int = 30) -> str:
+    title = (tpl.get("title") or f"Fakta {topic}").strip()
+    hook = _normalize_sentence((fact.get("hook") or _pick_hook(tpl)).strip())
+    cta  = _normalize_sentence((fact.get("cta") or _pick_cta(tpl)).strip())
+
+    one_liner = (fact.get("fact") or "").strip()
+    one_liner = " ".join(one_liner.split()).strip()
+    if one_liner and one_liner[-1] not in ".!?":
+        one_liner += "."
+
+    # ambil 2-3 kalimat penjelasan dari template, jangan diacak
+    lines = [l.strip() for l in (fact.get("lines") or []) if l.strip()]
+    expl = [_normalize_sentence(x) for x in lines[:3]]
+
+    header = [
+        f"#TITLE: {title}",
+        f"#TOPIC: {topic}",
+        f"#SECONDS: {int(seconds)}",
+        "",
+    ]
+    body = [hook, f"FAKTA: {one_liner}"] + expl + [cta]
+    return "\n".join(header + body).strip() + "\n"

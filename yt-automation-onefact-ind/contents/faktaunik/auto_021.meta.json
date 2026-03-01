@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Ada tempat yang hujannya hampir tiap hari",
+  "hook": "Bayangin jemur baju… susah!",
+  "cta": "Kamu lebih suka hujan atau panas?",
+  "query": "",
+  "bg": {
+    "query": "heavy rain city street realistic photo",
+    "variants": [
+      "rainy day street",
+      "tropical rain"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

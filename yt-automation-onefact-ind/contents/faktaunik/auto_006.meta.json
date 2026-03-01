@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Kupu-kupu “mengecap” dengan kaki",
+  "hook": "Mulutnya di kaki?",
+  "cta": "Kamu pernah lihat kupu-kupu dekat?",
+  "query": "",
+  "bg": {
+    "query": "butterfly on flower close up realistic photo",
+    "variants": [
+      "butterfly macro",
+      "butterfly feet close up"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

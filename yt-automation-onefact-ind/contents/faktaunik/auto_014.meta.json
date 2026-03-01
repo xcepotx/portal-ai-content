@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Ada batu yang bisa bergerak sendiri",
+  "hook": "Batu jalan sendiri itu nyata!",
+  "cta": "Kamu tim sains atau tim mistis?",
+  "query": "",
+  "bg": {
+    "query": "sailing stones desert rocks tracks realistic photo",
+    "variants": [
+      "moving rocks desert",
+      "rock tracks dry lake"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

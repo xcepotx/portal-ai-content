@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Cek wiper dan air washer",
+  "hook": "Hujan deras tapi kaca blur? Bahaya!",
+  "cta": "Wiper kamu masih bersih sapuannya?",
+  "query": "",
+  "bg": {
+    "query": "car windshield wiper and washer fluid realistic photo",
+    "variants": [
+      "windshield wiper close up",
+      "washer fluid refill"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

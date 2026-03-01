@@ -1,0 +1,326 @@
+{
+  "title": "Fakta Otomotif",
+  "seconds": 30,
+  "facts": [
+    {
+      "title": "Ban kurang angin bikin BBM boros",
+      "hook": "Mobil terasa normal, tapi bensin cepat habis?",
+      "fact": "Tekanan ban yang kurang meningkatkan hambatan gulir sehingga mesin bekerja lebih berat.",
+      "lines": [
+        "Ban kempis menambah gesekan ke aspal.",
+        "Mesin butuh tenaga lebih besar.",
+        "Cek tekanan ban minimal sebulan sekali."
+      ],
+      "cta": "Terakhir cek tekanan ban kapan?",
+      "bg": {
+        "query": "car tire pressure check close up realistic photo",
+        "variants": ["car tire gauge", "checking tire pressure"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Filter udara kotor bikin mesin lemas",
+      "hook": "Tarikan mobil terasa berat?",
+      "fact": "Filter udara yang kotor membatasi suplai oksigen ke mesin.",
+      "lines": [
+        "Pembakaran jadi tidak optimal.",
+        "Tenaga mesin menurun.",
+        "Filter udara murah tapi efeknya besar."
+      ],
+      "cta": "Filter udara mobil kamu masih bersih?",
+      "bg": {
+        "query": "dirty car air filter vs clean realistic photo",
+        "variants": ["engine air filter", "dirty air filter"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Oli mesin juga bisa kadaluarsa",
+      "hook": "Jarang dipakai bukan berarti aman.",
+      "fact": "Oli yang terlalu lama disimpan di mesin bisa teroksidasi dan kehilangan pelumasannya.",
+      "lines": [
+        "Mobil jarang jalan tetap butuh ganti oli.",
+        "Kelembapan mempercepat degradasi oli.",
+        "Idealnya ganti oli tiap 6–12 bulan."
+      ],
+      "cta": "Mobil jarang dipakai juga kamu ganti oli?",
+      "bg": {
+        "query": "engine oil change close up realistic photo",
+        "variants": ["car engine oil", "oil dipstick"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Aki lemah bikin boros BBM",
+      "hook": "Aki bermasalah efeknya ke bensin?",
+      "fact": "Aki lemah memaksa alternator bekerja lebih keras sehingga menambah beban mesin.",
+      "lines": [
+        "Alternator menarik tenaga dari mesin.",
+        "Beban mesin naik.",
+        "Efisiensi BBM turun."
+      ],
+      "cta": "Aki mobil kamu masih sehat?",
+      "bg": {
+        "query": "car battery inspection realistic photo",
+        "variants": ["car battery close up", "automotive battery"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "AC mobil mempengaruhi tenaga mesin",
+      "hook": "Kenapa mobil terasa berat saat AC nyala?",
+      "fact": "Kompresor AC mengambil tenaga langsung dari mesin.",
+      "lines": [
+        "Mesin kecil paling terasa dampaknya.",
+        "RPM idle bisa naik otomatis.",
+        "Normal selama tidak berlebihan."
+      ],
+      "cta": "AC nyala bikin mobil kamu terasa berat?",
+      "bg": {
+        "query": "car air conditioning compressor engine realistic photo",
+        "variants": ["car AC compressor", "engine AC system"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Shock absorber bocor bikin ban cepat habis",
+      "hook": "Ban cepat aus padahal baru?",
+      "fact": "Shock absorber lemah membuat ban tidak menapak merata ke jalan.",
+      "lines": [
+        "Grip ban jadi tidak stabil.",
+        "Pola aus ban tidak merata.",
+        "Handling ikut menurun."
+      ],
+      "cta": "Shock absorber pernah dicek?",
+      "bg": {
+        "query": "leaking shock absorber car realistic photo",
+        "variants": ["car suspension shock", "shock absorber leak"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Idle terlalu rendah bikin mesin cepat mati",
+      "hook": "Mesin sering mati saat berhenti?",
+      "fact": "Idle RPM yang terlalu rendah membuat mesin tidak stabil.",
+      "lines": [
+        "Beban AC dan kelistrikan mempengaruhi idle.",
+        "Sensor idle berperan penting.",
+        "Setelan idle harus sesuai standar."
+      ],
+      "cta": "RPM idle mobil kamu stabil?",
+      "bg": {
+        "query": "car engine idle rpm dashboard realistic photo",
+        "variants": ["tachometer idle rpm", "engine idle speed"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Rem panas bisa kehilangan daya cengkeram",
+      "hook": "Rem mendadak terasa blong?",
+      "fact": "Overheating pada rem menyebabkan brake fade.",
+      "lines": [
+        "Gesekan berkurang saat panas.",
+        "Sering terjadi di turunan panjang.",
+        "Engine brake sangat membantu."
+      ],
+      "cta": "Pernah merasakan brake fade?",
+      "bg": {
+        "query": "car brake disc overheating realistic photo",
+        "variants": ["brake disc heat", "car braking system"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "ECU bisa belajar gaya berkendara",
+      "hook": "Mobil terasa beda setelah lama dipakai?",
+      "fact": "Beberapa ECU modern menyesuaikan respon mesin dengan gaya mengemudi.",
+      "lines": [
+        "Data dikumpulkan dari sensor.",
+        "Respon gas bisa berubah.",
+        "Reset ECU bisa mengembalikan setelan awal."
+      ],
+      "cta": "Gaya nyetir kamu agresif atau santai?",
+      "bg": {
+        "query": "car ECU module realistic photo",
+        "variants": ["engine control unit", "car ECU"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Tangki hampir kosong bikin pompa bensin panas",
+      "hook": "Sering biarkan bensin hampir habis?",
+      "fact": "Pompa bensin terendam BBM untuk pendinginan.",
+      "lines": [
+        "BBM membantu mendinginkan pompa.",
+        "Tangki kosong mempercepat kerusakan.",
+        "Idealnya isi sebelum terlalu habis."
+      ],
+      "cta": "Sering nunggu lampu bensin nyala?",
+      "bg": {
+        "query": "fuel pump inside fuel tank realistic photo",
+        "variants": ["car fuel pump", "fuel tank interior"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Wiper aus bikin kaca buram saat hujan",
+      "hook": "Hujan tapi kaca malah blur?",
+      "fact": "Karet wiper yang getas meninggalkan lapisan air di kaca.",
+      "lines": [
+        "Visibilitas menurun drastis.",
+        "Berbahaya saat hujan deras.",
+        "Ganti wiper minimal setahun sekali."
+      ],
+      "cta": "Wiper mobil kamu masih lentur?",
+      "bg": {
+        "query": "car windshield wiper close up realistic photo",
+        "variants": ["worn windshield wiper", "car wiper blade"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Kaki-kaki bunyi tanda awal kerusakan",
+      "hook": "Dengar bunyi gluduk-gluduk?",
+      "fact": "Bunyi pada kaki-kaki sering muncul sebelum kerusakan parah.",
+      "lines": [
+        "Bushing mulai getas.",
+        "Ball joint mulai aus.",
+        "Deteksi dini lebih murah."
+      ],
+      "cta": "Mobil kamu ada bunyi aneh?",
+      "bg": {
+        "query": "car suspension inspection realistic photo",
+        "variants": ["car undercarriage suspension", "car ball joint"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Knalpot bocor mempengaruhi sensor",
+      "hook": "Suara knalpot berubah?",
+      "fact": "Kebocoran knalpot bisa mempengaruhi pembacaan sensor oksigen.",
+      "lines": [
+        "Campuran BBM jadi tidak ideal.",
+        "Emisi meningkat.",
+        "Performa mesin turun."
+      ],
+      "cta": "Pernah cek kondisi knalpot?",
+      "bg": {
+        "query": "car exhaust leak realistic photo",
+        "variants": ["exhaust system leak", "car muffler damage"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Kaca film terlalu gelap berbahaya malam hari",
+      "hook": "Kaca gelap memang keren, tapi…",
+      "fact": "Kaca film berlebihan menurunkan visibilitas di malam hari.",
+      "lines": [
+        "Pandangan samping jadi terbatas.",
+        "Risiko kecelakaan meningkat.",
+        "Sesuaikan dengan regulasi."
+      ],
+      "cta": "Kaca film mobil kamu berapa persen?",
+      "bg": {
+        "query": "car window tint dark night driving realistic photo",
+        "variants": ["dark window tint car", "night driving car interior"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Velg bengkok bikin setir bergetar",
+      "hook": "Setir getar di kecepatan tertentu?",
+      "fact": "Velg peyang menyebabkan keseimbangan roda terganggu.",
+      "lines": [
+        "Sering akibat lubang jalan.",
+        "Getaran terasa di setir.",
+        "Bisa merusak komponen lain."
+      ],
+      "cta": "Pernah kena lubang keras?",
+      "bg": {
+        "query": "bent car wheel rim realistic photo",
+        "variants": ["bent alloy wheel", "damaged car rim"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Lampu redup tanda masalah kelistrikan",
+      "hook": "Lampu utama makin redup?",
+      "fact": "Lampu redup bisa disebabkan kabel, soket, atau pengisian tidak optimal.",
+      "lines": [
+        "Bukan selalu bohlam rusak.",
+        "Soket berkarat sering jadi penyebab.",
+        "Cek sebelum ganti lampu."
+      ],
+      "cta": "Lampu mobil kamu terang?",
+      "bg": {
+        "query": "car headlight dim realistic photo",
+        "variants": ["dim car headlight", "car electrical problem"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Sensor ABS kotor bikin lampu nyala",
+      "hook": "Lampu ABS tiba-tiba hidup?",
+      "fact": "Kotoran di sensor ABS bisa mengganggu pembacaan roda.",
+      "lines": [
+        "Debu dan lumpur penyebab umum.",
+        "Belum tentu modul rusak.",
+        "Pembersihan bisa jadi solusi."
+      ],
+      "cta": "Lampu ABS pernah nyala?",
+      "bg": {
+        "query": "car ABS sensor wheel realistic photo",
+        "variants": ["ABS wheel sensor", "car wheel speed sensor"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Kipas radiator mati bikin overheat cepat",
+      "hook": "Macet sebentar suhu naik?",
+      "fact": "Kipas radiator sangat penting saat mobil berhenti atau lambat.",
+      "lines": [
+        "Pendinginan alami tidak cukup.",
+        "Suhu cepat melonjak.",
+        "Overheat bisa merusak mesin."
+      ],
+      "cta": "Kipas radiator mobil kamu normal?",
+      "bg": {
+        "query": "car radiator cooling fan realistic photo",
+        "variants": ["radiator fan motor", "engine cooling fan"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Kopling setengah bikin cepat aus",
+      "hook": "Sering tahan kopling?",
+      "fact": "Menahan kopling setengah meningkatkan panas dan keausan.",
+      "lines": [
+        "Plat kopling cepat tipis.",
+        "Panas berlebih merusak komponen.",
+        "Biasakan lepas penuh."
+      ],
+      "cta": "Masih sering setengah kopling?",
+      "bg": {
+        "query": "manual car clutch pedal realistic photo",
+        "variants": ["manual transmission clutch", "car clutch system"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Power steering bocor bikin setir berat",
+      "hook": "Setir mendadak terasa berat?",
+      "fact": "Kebocoran power steering mengurangi tekanan hidrolik.",
+      "lines": [
+        "Setir jadi tidak ringan.",
+        "Bisa merusak pompa.",
+        "Segera cek sebelum parah."
+      ],
+      "cta": "Setir mobil kamu masih ringan?",
+      "bg": {
+        "query": "power steering fluid leak car realistic photo",
+        "variants": ["power steering hose leak", "steering system leak"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    }
+  ]
+}

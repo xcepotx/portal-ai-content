@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Periksa aki dan terminalnya",
+  "hook": "Starter lemah sering dari terminal kotor!",
+  "cta": "Terminal aki kamu bersih?",
+  "query": "",
+  "bg": {
+    "query": "car battery terminal corrosion realistic photo",
+    "variants": [
+      "battery terminal cleaning",
+      "corroded battery terminal"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

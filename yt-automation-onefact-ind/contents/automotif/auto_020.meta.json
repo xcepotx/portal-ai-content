@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Baca indikator di dashboard, jangan diabaikan",
+  "hook": "Lampu indikator itu bukan hiasan!",
+  "cta": "Kalau check engine nyala, kamu ngapain?",
+  "query": "",
+  "bg": {
+    "query": "car dashboard warning lights check engine realistic photo",
+    "variants": [
+      "check engine light on",
+      "dashboard warning lights"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

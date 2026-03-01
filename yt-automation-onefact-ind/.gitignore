@@ -1,0 +1,27 @@
+# Video files
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.flv
+*.wmv
+
+# Music/Audio files
+*.mp3
+*.wav
+*.m4a
+*.flac
+*.aac
+*.ogg
+
+venv/
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+.env
+
+
+logs/
+temp/
+upload/

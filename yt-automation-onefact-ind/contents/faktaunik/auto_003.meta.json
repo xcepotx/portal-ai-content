@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Ada sungai yang warnanya pelangi",
+  "hook": "Ini sungai atau cat tumpah?",
+  "cta": "Kalau kamu lihat, percaya gak itu asli?",
+  "query": "",
+  "bg": {
+    "query": "colorful river natural phenomenon realistic photo",
+    "variants": [
+      "rainbow river",
+      "multicolored river"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Jangan tunggu bensin hampir habis",
+  "hook": "Sering nunggu lampu bensin nyala?",
+  "cta": "Kamu tim isi sebelum habis atau nunggu warning?",
+  "query": "",
+  "bg": {
+    "query": "low fuel warning light car dashboard realistic photo",
+    "variants": [
+      "fuel gauge low",
+      "car dashboard fuel light"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

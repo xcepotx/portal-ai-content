@@ -1,0 +1,887 @@
+import os
+import html
+import sys
+import time
+import random
+from pathlib import Path
+import streamlit as st
+from streamlit_autorefresh import st_autorefresh
+
+from core.content_cleaner import load_and_clean_txt
+from core.job_store import JobStore
+from core.avatar_rhubarb import apply_avatar_rhubarb  # engine sama seperti control panel (yang sudah kita buat)
+
+from core.auto_manifest_builder import (
+    AutoStockSettings,
+    build_manifest,
+    ManifestBuildError,
+    extract_keyword_visual
+)
+
+TAB_KEY = "auto_stock_video"
+GLOBAL_PROFILE_NAME = "__global__"
+
+
+# =========================
+# Helpers: ctx/profile
+# =========================
+def _get_job_output(ws_root: Path, job_id: str) -> str:
+    js = JobStore(ws_root / "jobs")
+    j = js.get(job_id)
+    if not j:
+        return ""
+    return str((j.meta or {}).get("output_video") or "")
+
+def _list_avatar_ids(ctx=None) -> list[str]:
+    # repo root: .../yt-automation-onefact-ind
+    repo_root = Path(__file__).resolve().parents[1]
+    avatars_dir = (repo_root / "assets" / "avatars").resolve()
+    if not avatars_dir.exists():
+        return []
+    ids = [p.name for p in avatars_dir.iterdir() if p.is_dir() and not p.name.startswith(".")]
+    ids.sort(key=lambda x: x.lower())
+    return ids
+
+def _coerce_path(v) -> Path | None:
+    """
+    Accepts str | Path | None and returns Path or None.
+    """
+    if v is None:
+        return None
+    if isinstance(v, Path):
+        return v.expanduser().resolve()
+    if isinstance(v, str):
+        s = v.strip()
+        if not s:
+            return None
+        return Path(s).expanduser().resolve()
+    # fallback for other types (e.g. pathlib from json decoding weirdness)
+    try:
+        s = str(v).strip()
+        if not s:
+            return None
+        return Path(s).expanduser().resolve()
+    except Exception:
+        return None
+
+def _legacy_project_root() -> Path:
+    # yt-automation-onefact-ind/
+    return Path(__file__).resolve().parents[1]
+
+
+def _ctx_get_username(ctx) -> str:
+    if not isinstance(ctx, dict):
+        return ""
+    return (ctx.get("auth_user") or ctx.get("user") or "").strip()
+
+
+def _ctx_get_paths(ctx) -> dict:
+    if not isinstance(ctx, dict):
+        return {}
+    return ctx.get("paths") or {}
+
+
+def _ctx_get_services(ctx):
+    """
+    Return services object/dict (PortalServices bisa object).
+    """
+    if not isinstance(ctx, dict):
+        return None
+    return ctx.get("services") or ctx.get("service") or ctx.get("svc")
+
+def _ctx_get_profile_store(ctx):
+    services = _ctx_get_services(ctx)
+    if not services:
+        return None
+
+    # dict style
+    if isinstance(services, dict):
+        return services.get("profile_store") or services.get("profiles")
+
+    # object style (PortalServices)
+    for attr in ("profile_store", "profiles"):
+        if hasattr(services, attr):
+            return getattr(services, attr)
+
+    return None
+
+def _load_profile_from_ctx_or_store(ctx) -> dict:
+    # prefer ctx["profile"], fallback ctx["services"]["profile_store"].get_profile(user)
+    if isinstance(ctx, dict) and isinstance(ctx.get("profile"), dict):
+        return ctx["profile"]
+
+    store = _ctx_get_profile_store(ctx)
+    user = _ctx_get_username(ctx)
+    if store and user:
+        try:
+            return store.get_profile(user, decrypt_secrets=True) or {}
+        except TypeError:
+            # some stores might not support decrypt_secrets
+            return store.get_profile(user) or {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _load_global_profile_from_ctx_or_store(ctx) -> dict:
+    if isinstance(ctx, dict) and isinstance(ctx.get("global_profile"), dict):
+        return ctx["global_profile"]
+
+    store = _ctx_get_profile_store(ctx)
+    if store:
+        try:
+            return store.get_profile(GLOBAL_PROFILE_NAME, decrypt_secrets=True) or {}
+        except TypeError:
+            return store.get_profile(GLOBAL_PROFILE_NAME) or {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _effective_api_keys(ctx) -> dict:
+    if isinstance(ctx, dict) and isinstance(ctx.get("api_keys"), dict):
+        return ctx["api_keys"]
+    return {}
+
+
+def _inject_env_keys_from_ctx(ctx) -> None:
+    keys = _effective_api_keys(ctx)
+    if not keys:
+        return
+
+    eleven = (keys.get("elevenlabs") or "").strip()
+    gemini = (keys.get("gemini") or "").strip()
+    pexels = (keys.get("pexels") or "").strip()
+    pixabay = (keys.get("pixabay") or "").strip()
+
+    if eleven:
+        os.environ["ELEVENLABS_API_KEY"] = eleven
+    if gemini:
+        os.environ["GEMINI_API_KEY"] = gemini
+        os.environ["GOOGLE_API_KEY"] = gemini
+    if pexels:
+        os.environ["PEXELS_API_KEY"] = pexels
+    if pixabay:
+        os.environ["PIXABAY_API_KEY"] = pixabay
+
+
+def _parse_csv(s: str) -> list[str]:
+    s = (s or "").replace("\n", ",")
+    return [x.strip() for x in s.split(",") if x.strip()]
+
+
+def _opacity_to_255(v, default: int = 120) -> int:
+    """
+    Support legacy 0.0..1.0 or new 0..255.
+    """
+    try:
+        f = float(v)
+        if 0.0 <= f <= 1.0:
+            f *= 255.0
+        i = int(round(f))
+        return max(0, min(255, i))
+    except Exception:
+        return max(0, min(255, int(default)))
+
+
+def _resolve_ws_root(ctx, legacy_root: Path) -> Path:
+    paths = _ctx_get_paths(ctx)
+    p = _coerce_path(paths.get("user_root"))
+    if p and (p / "contents").exists():
+        return p
+    return legacy_root
+
+def _resolve_ws_root_(ctx, legacy_root: Path) -> Path:
+    paths = _ctx_get_paths(ctx)
+    ws = (paths.get("user_root") or "").strip()
+    if ws:
+        p = Path(ws).expanduser().resolve()
+        if (p / "contents").exists():
+            return p
+    return legacy_root
+
+def _resolve_logs_dir(ctx, ws_root: Path) -> Path:
+    paths = _ctx_get_paths(ctx)
+    p = _coerce_path(paths.get("logs"))
+    return p if p else (ws_root / "logs").resolve()
+
+def _resolve_manifests_dir(ctx, ws_root: Path) -> Path:
+    paths = _ctx_get_paths(ctx)
+    p = _coerce_path(paths.get("manifests"))
+    return p if p else (ws_root / "manifests").resolve()
+
+def __resolve_manifests_dir(ctx, ws_root: Path) -> Path:
+    paths = _ctx_get_paths(ctx)
+    p = (paths.get("manifests") or "").strip()
+    return Path(p).expanduser().resolve() if p else (ws_root / "manifests").resolve()
+
+
+def _resolve_edge_voice_pool(ctx, global_prof: dict) -> list[str]:
+    # 1) ctx["render"]["edge_voice_pool"]
+    try:
+        if isinstance(ctx, dict):
+            pool = ((ctx.get("render") or {}).get("edge_voice_pool")) or []
+            if isinstance(pool, list) and pool:
+                out = [str(x).strip() for x in pool if str(x).strip()]
+                if out:
+                    return out
+    except Exception:
+        pass
+
+    # 2) global profile edge_voice_pool_csv
+    g_rd = (global_prof.get("render_defaults") or {}) if isinstance(global_prof, dict) else {}
+    csv = (g_rd.get("edge_voice_pool_csv") or "").strip()
+    if csv:
+        out = _parse_csv(csv)
+        if out:
+            return out
+
+    # 3) ENV
+    csv = (os.getenv("EDGE_VOICE_POOL_CSV") or "").strip()
+    if csv:
+        out = _parse_csv(csv)
+        if out:
+            return out
+
+    # 4) fallback
+    return ["id-ID-ArdiNeural", "id-ID-GadisNeural", "en-US-GuyNeural", "en-US-JennyNeural"]
+
+
+# =========================
+# Helpers: contents
+# =========================
+def _list_content_folders_and_files(base: Path) -> dict[str, list[str]]:
+    """
+    Scan recursive:
+      base/contents/**.txt
+    Group by first-level folder under contents (topic).
+    Store relative paths like: contents/faktaunik/a.txt
+    """
+    contents_dir = base / "contents"
+    out: dict[str, list[str]] = {}
+    if not contents_dir.exists():
+        return out
+
+    for p in sorted(contents_dir.rglob("*.txt"), key=lambda x: str(x).lower()):
+        try:
+            rel = p.relative_to(base)  # contents/<topic>/...
+            topic = rel.parts[1] if len(rel.parts) > 1 else "_root"
+            out.setdefault(topic, []).append(str(rel))
+        except Exception:
+            out.setdefault("_misc", []).append(str(p))
+
+    # sort keys + entries
+    out2: dict[str, list[str]] = {}
+    for k in sorted(out.keys(), key=lambda x: x.lower()):
+        out2[k] = sorted(out[k], key=lambda x: x.lower())
+    return out2
+
+
+# =========================
+# UI helpers
+# =========================
+def _logbox_autoscroll(title: str, text: str, height_px: int = 320):
+    safe = html.escape(text or "")
+    st.components.v1.html(
+        f"""
+        <div style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+                    font-size: 12px;">
+          <div style="margin-bottom:6px; opacity:.85;">{html.escape(title)}</div>
+          <div id="logbox"
+               style="height:{int(height_px)}px; overflow:auto; white-space:pre-wrap;
+                      border:1px solid rgba(255,255,255,0.12); border-radius:10px;
+                      padding:10px; background:rgba(0,0,0,0.35);">
+{safe}
+          </div>
+        </div>
+
+        <script>
+          const el = document.getElementById("logbox");
+          if (el) {{
+            el.scrollTop = el.scrollHeight;
+          }}
+        </script>
+        """,
+        height=height_px + 60,
+    )
+
+
+def _pid_is_running(pid: int) -> bool:
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except Exception:
+        return False
+
+
+# =========================
+# Main entry
+# =========================
+def render(ctx=None):
+    st.markdown("## 🎬 Auto Short Video Creator (Stock Video Mode)")
+    st.caption("Generate manifest otomatis dari content + stock video, lalu render via CLI (non-blocking).")
+
+    legacy_root = _legacy_project_root()
+
+    # load profiles + inject effective keys into ENV (so subprocess inherits)
+    prof = _load_profile_from_ctx_or_store(ctx)
+    global_prof = _load_global_profile_from_ctx_or_store(ctx)
+    _inject_env_keys_from_ctx(ctx)
+
+    rd = (prof.get("render_defaults") or {}) if isinstance(prof, dict) else {}
+    edge_pool = _resolve_edge_voice_pool(ctx, global_prof)
+
+    ws_root = _resolve_ws_root(ctx, legacy_root)
+    logs_dir = _resolve_logs_dir(ctx, ws_root)
+    manifests_dir = _resolve_manifests_dir(ctx, ws_root)
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    manifests_dir.mkdir(parents=True, exist_ok=True)
+
+    # ---- state ----
+    st.session_state[TAB_KEY] = {
+        "last_job_id": None,
+        "last_manifest": None,
+        "last_error": None,
+        "last_output": None,
+        "profile_sig": None,
+    }
+    state = st.session_state[TAB_KEY]
+
+    # ---- profile sync (reset widget keys when profile updated) ----
+    pu = (prof.get("updated_at") or "") if isinstance(prof, dict) else ""
+    pg = (global_prof.get("updated_at") or "") if isinstance(global_prof, dict) else ""
+    prof_sig = f"{pu}|{pg}".strip() or None
+
+    # Keys yang “default harus ikut profile”
+    SYNC_KEYS = [
+        f"{TAB_KEY}_tts_engine",
+        f"{TAB_KEY}_avatar_on",
+        f"{TAB_KEY}_edge_voice",
+        f"{TAB_KEY}_handle",
+        f"{TAB_KEY}_hook_sub",
+        f"{TAB_KEY}_hook_sub_on",
+        f"{TAB_KEY}_wm_on",
+        f"{TAB_KEY}_wm_pos",
+        f"{TAB_KEY}_wm_op",
+        f"{TAB_KEY}_eleven_pool",
+        f"{TAB_KEY}_avatar_id", 
+        f"{TAB_KEY}_avatar_pos",
+        f"{TAB_KEY}_avatar_scale",
+    ]
+
+    if prof_sig and state.get("profile_sig") != prof_sig:
+        for k in SYNC_KEYS:
+            st.session_state.pop(k, None)  # reset supaya widget ambil default baru dari profile
+        state["profile_sig"] = prof_sig
+
+    # ---- Content selector ----
+    st.markdown("### 1️⃣ Content Selector")
+
+    folders = _list_content_folders_and_files(ws_root)
+    if not folders:
+        st.error(f"Tidak ada file .txt di `{ws_root / 'contents'}`")
+        return
+
+    folder_names = list(folders.keys())
+    default_folder = st.session_state.get(f"{TAB_KEY}_folder", folder_names[0])
+    if default_folder not in folder_names:
+        default_folder = folder_names[0]
+
+    cL, cR = st.columns([1, 2])
+    with cL:
+        selected_folder = st.selectbox(
+            "Folder",
+            folder_names,
+            index=folder_names.index(default_folder),
+            key=f"{TAB_KEY}_folder",
+        )
+
+    files_in_folder = folders[selected_folder]
+    default_file = st.session_state.get(f"{TAB_KEY}_file", files_in_folder[0])
+    if default_file not in files_in_folder:
+        default_file = files_in_folder[0]
+
+    with cR:
+        content_file = st.selectbox(
+            "File (.txt)",
+            files_in_folder,
+            index=files_in_folder.index(default_file),
+            key=f"{TAB_KEY}_file",
+        )
+
+    content_abs = (ws_root / content_file).resolve()
+    cc = load_and_clean_txt(content_abs)
+    content_clean = "\n".join(cc.lines)
+
+    with st.expander("📄 Preview Content (.txt)", expanded=False):
+        st.text_area(
+            "Content Preview",
+            value="\n".join(cc.lines),
+            height=200,
+            label_visibility="collapsed",
+        )
+        if cc.meta:
+            st.caption("Meta terdeteksi (di-skip untuk TTS): " + ", ".join([f"{k}={v}" for k, v in cc.meta.items()]))
+
+    # keyword default per file
+    kw_key = f"{TAB_KEY}_kw_default"
+    kw_file_key = f"{TAB_KEY}_kw_file"
+    if st.session_state.get(kw_file_key) != content_file:
+        st.session_state[kw_file_key] = content_file
+        st.session_state[kw_key] = extract_keyword_visual(content_clean)
+
+    st.markdown("### 🔎 Keyword Override (opsional)")
+    kw_override = st.text_input(
+        "Paksa keyword stock (kosongkan untuk auto)",
+        value=st.session_state.get(kw_key, ""),
+        key=f"{TAB_KEY}_kw_override",
+    )
+
+    # ---- Stock source ----
+    st.markdown("### 2️⃣ Stock Source Selector")
+    stock_source = st.radio(
+        "Sumber stock video",
+        ["Pexels", "Pixabay", "Both (random combine)"],
+        horizontal=True,
+        key=f"{TAB_KEY}_stock_source",
+    )
+    source_map = {"Pexels": "pexels", "Pixabay": "pixabay", "Both (random combine)": "both"}
+
+    # ---- Video settings ----
+    st.markdown("### 3️⃣ Video Settings")
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        target_duration = st.number_input("Target duration (sec)", min_value=10, max_value=90, value=30, step=1, key=f"{TAB_KEY}_dur")
+    with c2:
+        orientation = st.selectbox("Orientation", ["9:16", "16:9", "1:1"], index=0, key=f"{TAB_KEY}_ori")
+    with c3:
+        clip_count = st.slider("Clip count (5–8)", min_value=5, max_value=8, value=7, step=1, key=f"{TAB_KEY}_clip_count")
+    with c4:
+        seed_text = st.text_input("Random seed (optional)", value="", key=f"{TAB_KEY}_seed_txt")
+        random_seed = int(seed_text) if seed_text.strip().isdigit() else None
+
+    # ---- Text settings ----
+    st.markdown("### 4️⃣ Content Settings")
+    with st.expander("✍️ Text Settings", expanded=False):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            caption_style = st.selectbox("Caption style", ["Bold White", "Yellow Highlight", "Modern Subtitle"], index=2, key=f"{TAB_KEY}_cap_style")
+        with c2:
+            caption_position = st.selectbox("Caption position", ["Center", "Bottom", "Dynamic"], index=1, key=f"{TAB_KEY}_cap_pos")
+        with c3:
+            font_size = st.slider("Font size", min_value=10, max_value=28, value=16, step=2, key=f"{TAB_KEY}_font_size")
+
+    # ---- TTS settings (mirror profile) ----
+    with st.expander("🗣️ TTS Settings", expanded=False):
+        tts_on_key = f"{TAB_KEY}_tts_on"
+        tts_enabled = st.toggle("Enable TTS", value=bool(st.session_state.get(tts_on_key, True)), key=tts_on_key)
+
+        # options follow My Profile order
+        has_eleven = bool((os.getenv("ELEVENLABS_API_KEY") or "").strip())
+        tts_opts = ["elevenlabs", "gtts", "edge"] if has_eleven else ["gtts", "edge"]
+
+        cur_tts = (rd.get("tts_engine") or "gtts")
+        if cur_tts == "edge-tts":
+            cur_tts = "edge"
+        if cur_tts not in tts_opts:
+            cur_tts = tts_opts[0]
+
+        tts_engine_key = f"{TAB_KEY}_tts_engine"
+        tts_engine = st.selectbox(
+            "TTS engine",
+            tts_opts,
+            index=tts_opts.index(st.session_state.get(tts_engine_key, cur_tts)),
+            disabled=not tts_enabled,
+            key=tts_engine_key,
+            format_func=(lambda x: "edge-tts (gratis)" if x == "edge" else x),
+        )
+
+        voice = ""
+        c1, c2, c3 = st.columns(3)
+
+        with c2:
+            if tts_engine == "edge":
+                # default voice per-user dari profile
+                edge_default = (rd.get("edge_voice") or os.getenv("EDGE_TTS_VOICE", "id-ID-ArdiNeural")).strip()
+                if edge_default not in edge_pool:
+                    edge_default = edge_pool[0] if edge_pool else edge_default
+
+                edge_voice_key = f"{TAB_KEY}_edge_voice"
+                voice = st.selectbox(
+                    "Voice (edge-tts)",
+                    edge_pool,
+                    index=edge_pool.index(st.session_state.get(edge_voice_key, edge_default)) if edge_pool else 0,
+                    disabled=not tts_enabled,
+                    key=edge_voice_key,
+                )
+
+            elif tts_engine == "elevenlabs":
+                # default pool dari profile.render_defaults.voice_id (multiple)
+                prof_pool = _parse_csv(str(rd.get("voice_id", "") or ""))
+                if not prof_pool:
+                    # fallback ENV VOICE_ID_1/_2
+                    v1 = (os.getenv("ELEVENLABS_VOICE_ID_1", "") or "").strip()
+                    v2 = (os.getenv("ELEVENLABS_VOICE_ID_2", "") or "").strip()
+                    prof_pool = [x for x in [v1, v2] if x]
+
+                pool_key = f"{TAB_KEY}_eleven_pool"
+                pool_default_text = ", ".join(prof_pool) if prof_pool else "VOICE_ID_1,VOICE_ID_2"
+
+                pool_raw = st.text_input(
+                    "ElevenLabs voice_id pool (pisahkan koma / newline)",
+                    value=st.session_state.get(pool_key, pool_default_text),
+                    key=pool_key,
+                    disabled=not tts_enabled,
+                )
+                pool = [x.strip() for x in pool_raw.replace("\n", ",").split(",") if x.strip()]
+
+                if not pool:
+                    st.warning("Isi minimal 1 voice_id (atau set render_defaults.voice_id di My Profile).")
+                    voice = ""
+                else:
+                    rng = random.Random(random_seed) if random_seed is not None else random.Random()
+                    voice = rng.choice(pool)
+                    st.caption(f"✅ ElevenLabs voice terpilih (random): `{voice}`")
+
+            else:
+                st.caption("gTTS tidak butuh voice dropdown.")
+
+        with c3:
+            speed_key = f"{TAB_KEY}_tts_speed"
+            speed = st.slider(
+                "Speed",
+                min_value=0.6, max_value=1.4,
+                value=float(st.session_state.get(speed_key, 1.0)),
+                step=0.05,
+                disabled=not tts_enabled,
+                key=speed_key,
+            )
+
+    # ---- Avatar (separate expander) ----
+    g_rd = (global_prof.get("render_defaults") or {}) if isinstance(global_prof, dict) else {}
+
+    avatar_enabled_default = bool(g_rd.get("avatar_enabled", False))
+    avatar_id_default = str(g_rd.get("avatar_id") or "cat_v1").strip()
+    avatar_pos_default = str(g_rd.get("avatar_position") or "bottom-right").strip()
+    avatar_scale_default = float(g_rd.get("avatar_scale") or 0.20)
+
+    with st.expander("🧑‍🎤 Avatar (Lipsync Rhubarb)", expanded=False):
+        avatar_on_key = f"{TAB_KEY}_avatar_on"
+        avatar_enabled = st.toggle(
+            "Enable Avatar (lipsync mengikuti audio TTS)",
+            value=bool(st.session_state.get(avatar_on_key, avatar_enabled_default)),
+            key=avatar_on_key,
+            disabled=not tts_enabled,
+            help="Butuh rhubarb terinstall. Avatar muncul kanan-bawah (atau posisi yang dipilih)."
+        )
+
+        avatar_ids = _list_avatar_ids(ctx)
+        if not avatar_ids:
+            st.warning("Tidak ada avatar ditemukan di `assets/avatars/`.")
+            avatar_ids = ["cat_v1"]
+
+        # dropdown avatar_id
+        cur_avatar_id = str(st.session_state.get(f"{TAB_KEY}_avatar_id", avatar_id_default) or avatar_id_default).strip()
+        if cur_avatar_id not in avatar_ids:
+            cur_avatar_id = avatar_ids[0]
+
+        avatar_id = st.selectbox(
+            "Pilih Avatar",
+            avatar_ids,
+            index=avatar_ids.index(cur_avatar_id),
+            key=f"{TAB_KEY}_avatar_id",
+            disabled=not avatar_enabled,
+        )
+
+        pos_opts = ["bottom-right", "bottom-left", "top-right", "top-left"]
+        cur_pos = str(st.session_state.get(f"{TAB_KEY}_avatar_pos", avatar_pos_default) or avatar_pos_default).strip()
+        if cur_pos not in pos_opts:
+            cur_pos = "bottom-right"
+
+        avatar_position = st.selectbox(
+            "Avatar position",
+            pos_opts,
+            index=pos_opts.index(cur_pos),
+            key=f"{TAB_KEY}_avatar_pos",
+            disabled=not avatar_enabled,
+        )
+
+        avatar_scale = st.slider(
+            "Avatar scale (proporsi tinggi video)",
+            min_value=0.10,
+            max_value=0.35,
+            value=float(st.session_state.get(f"{TAB_KEY}_avatar_scale", avatar_scale_default)),
+            step=0.01,
+            key=f"{TAB_KEY}_avatar_scale",
+            disabled=not avatar_enabled,
+        )
+
+        st.caption(f"Avatar aktif: `{avatar_id}` • pos: `{avatar_position}` • scale: `{avatar_scale:.2f}`")
+
+    # ---- BGM ----
+    with st.expander("🎵 BGM (Background Music)", expanded=False):
+        bgm_on_key = f"{TAB_KEY}_bgm_on"
+        bgm_enabled = st.toggle("Enable BGM", value=bool(st.session_state.get(bgm_on_key, True)), key=bgm_on_key)
+        bgm_vol_key = f"{TAB_KEY}_bgm_vol"
+        bgm_volume = st.slider(
+            "BGM volume",
+            min_value=0.0, max_value=1.0,
+            value=float(st.session_state.get(bgm_vol_key, 0.20)),
+            step=0.05,
+            disabled=not bgm_enabled,
+            key=bgm_vol_key,
+        )
+
+    # ---- Render options (mirror profile) ----
+    with st.expander("🧩 Render Options (Watermark / Handle / Hook Subtitle)", expanded=False):
+        cA, cB = st.columns([1, 1])
+
+        # handle list from profile
+        wm_list = _parse_csv(str(rd.get("watermark_handles_csv", "") or ""))
+        if not wm_list and (rd.get("watermark_handle") or "").strip():
+            wm_list = [(rd.get("watermark_handle") or "").strip()]
+
+        # hook subtitles list from profile
+        hook_list = _parse_csv(str(rd.get("hook_subtitles_csv", "") or ""))
+        if not hook_list and (rd.get("hook_sub") or "").strip():
+            hook_list = [(rd.get("hook_sub") or "").strip()]
+
+        with cA:
+            # handle
+            handle_key = f"{TAB_KEY}_handle"
+            handle_default = (rd.get("watermark_handle") or "@yourchannel").strip()
+            if wm_list:
+                cur = st.session_state.get(handle_key, handle_default)
+                if cur not in wm_list:
+                    cur = wm_list[0]
+                handle = st.selectbox(
+                    "Channel handle (watermark/CTA)",
+                    wm_list,
+                    index=wm_list.index(cur),
+                    key=handle_key,
+                )
+            else:
+                handle = st.text_input(
+                    "Channel handle (watermark/CTA)",
+                    value=st.session_state.get(handle_key, handle_default),
+                    key=handle_key,
+                )
+
+            # hook subtitle on/off default from profile.hook_subtitle_default
+            hook_on_key = f"{TAB_KEY}_hook_sub_on"
+            hook_sub_on = st.toggle(
+                "Hook subtitle ON",
+                value=bool(st.session_state.get(hook_on_key, bool(rd.get("hook_subtitle_default", True)))),
+                key=hook_on_key,
+            )
+
+            hook_sub_key = f"{TAB_KEY}_hook_sub"
+            hook_default = (rd.get("hook_sub") or "FAKTA CEPAT").strip()
+
+            if hook_list:
+                cur = st.session_state.get(hook_sub_key, hook_default)
+                if cur not in hook_list:
+                    cur = hook_list[0]
+                hook_subtitle_opt = st.selectbox(
+                    "Hook subtitle (override)",
+                    hook_list,
+                    index=hook_list.index(cur),
+                    disabled=not hook_sub_on,
+                    key=hook_sub_key,
+                )
+            else:
+                hook_subtitle_opt = st.text_input(
+                    "Hook subtitle (override)",
+                    value=st.session_state.get(hook_sub_key, hook_default),
+                    disabled=not hook_sub_on,
+                    key=hook_sub_key,
+                )
+
+        with cB:
+            wm_on_key = f"{TAB_KEY}_wm_on"
+            watermark_enabled = st.toggle(
+                "Watermark ON",
+                value=bool(st.session_state.get(wm_on_key, True)),
+                key=wm_on_key,
+                help="Jika OFF → sama dengan --no-watermark"
+            )
+
+            pos_opts = ["top-right", "top-left", "bottom-right", "bottom-left"]
+            wm_pos_key = f"{TAB_KEY}_wm_pos"
+            pos_default = (rd.get("watermark_position") or "bottom-right").strip()
+            cur_pos = st.session_state.get(wm_pos_key, pos_default)
+            if cur_pos not in pos_opts:
+                cur_pos = "bottom-right"
+
+            watermark_position = st.selectbox(
+                "Watermark position",
+                pos_opts,
+                index=pos_opts.index(cur_pos),
+                key=wm_pos_key,
+            )
+
+            wm_op_key = f"{TAB_KEY}_wm_op"
+            op_default = _opacity_to_255(rd.get("watermark_opacity", 120), default=120)
+            watermark_opacity = st.slider(
+                "Watermark opacity (0–255)",
+                min_value=0,
+                max_value=255,
+                value=int(st.session_state.get(wm_op_key, op_default)),
+                step=1,
+                key=wm_op_key,
+            )
+
+    # ---- Render controls ----
+    st.markdown("### 5️⃣ Render Controls")
+
+    job = state.get("job")
+    pid = int(job["pid"]) if job and job.get("pid") else 0
+    is_running = bool(pid and _pid_is_running(pid))
+
+    # kalau job ada tapi proses mati → reset
+    if job and pid and (not is_running):
+        state["job"] = None
+        state["ended_at"] = time.time()
+        state["log_expanded"] = False
+        state["last_log_path"] = job.get("log_path")
+
+    role = st.session_state.get("auth_role", "")
+    can_generate = (role == "admin")
+    if not can_generate:
+        st.info("Akun ini mode VIEWER: hanya bisa melihat & preview. Tombol Generate dinonaktifkan.")
+
+    # button
+    btn1, btn2, _ = st.columns([1, 1, 2])
+    with btn1:
+        gen_clicked = st.button("🚀 Generate", type="primary", disabled=(not can_generate))
+    with btn2:
+        stop_clicked = st.button("🛑 Stop", disabled=(not can_generate))
+
+    if gen_clicked and (not can_generate):
+        st.warning("Tidak punya izin untuk Generate.")
+        return
+
+    # === enqueue job ===
+    if gen_clicked:
+        state["last_error"] = None
+        state["last_output"] = None
+
+        try:
+            hook_subtitle_final = hook_subtitle_opt.strip() if st.session_state.get(f"{TAB_KEY}_hook_sub_on", True) else ""
+
+            settings = AutoStockSettings(
+                content_file=content_file,
+                stock_source=source_map[stock_source],
+                target_duration=float(target_duration),
+                orientation=orientation,
+                random_seed=random_seed,
+                clip_count=int(clip_count),
+                hook_text="",
+                cta_text="",
+                caption_style=caption_style,          # type: ignore
+                caption_position=caption_position,    # type: ignore
+                font_size=int(font_size),
+
+                tts_enabled=bool(st.session_state.get(f"{TAB_KEY}_tts_on", True)),
+                tts_engine=str(st.session_state.get(f"{TAB_KEY}_tts_engine", (rd.get("tts_engine") or "gtts"))),
+                tts_voice=str(voice or ""),
+                tts_speed=float(st.session_state.get(f"{TAB_KEY}_tts_speed", 1.0)),
+
+                avatar_enabled=bool(avatar_enabled),
+                avatar_id=str(avatar_id),
+                avatar_position=str(avatar_position),
+                avatar_scale=float(avatar_scale),
+
+                keyword_override=(kw_override.strip() or None),
+                handle=str(handle or "").strip(),
+                watermark_enabled=bool(watermark_enabled),
+                watermark_position=str(watermark_position),
+                hook_subtitle=hook_subtitle_final,
+                watermark_opacity=int(watermark_opacity),
+
+                bgm_enabled=bool(st.session_state.get(f"{TAB_KEY}_bgm_on", True)),
+                bgm_volume=float(st.session_state.get(f"{TAB_KEY}_bgm_vol", 0.20)),
+            )
+
+            manifest_path = build_manifest(settings=settings, base_dir=ws_root)
+            state["last_manifest"] = str(manifest_path)
+
+            # === command (sesuaikan dengan CLI main.py kamu) ===
+            cmd_args = [sys.executable, str(legacy_root / "main.py"), "--manifest", str(manifest_path)]
+
+            # === env (ikut control panel) ===
+            keys = _effective_api_keys(ctx) if isinstance(ctx, dict) else {}
+            env = os.environ.copy()
+            if keys.get("elevenlabs"): env["ELEVENLABS_API_KEY"] = str(keys["elevenlabs"])
+            if keys.get("gemini"):
+                env["GEMINI_API_KEY"] = str(keys["gemini"])
+                env["GOOGLE_API_KEY"] = str(keys["gemini"])
+            if keys.get("pexels"): env["PEXELS_API_KEY"] = str(keys["pexels"])
+            if keys.get("pixabay"): env["PIXABAY_API_KEY"] = str(keys["pixabay"])
+
+            env["YTA_BGM_DIR"] = str((legacy_root / "assets" / "bgm").resolve())
+            env["YTA_AVATARS_DIR"] = str((legacy_root / "assets" / "avatars").resolve())
+
+            # === IMPORTANT: jobs_dir harus di ws_root user (biar muncul di Jobs List) ===
+            js = JobStore(Path(ws_root) / "jobs")
+
+            user = _ctx_get_username(ctx) or "unknown"
+
+            post = {
+                "topic": selected_folder,
+                "tts_on": bool(st.session_state.get(f"{TAB_KEY}_tts_on", True)),
+                "bgm_on": bool(st.session_state.get(f"{TAB_KEY}_bgm_on", True)),
+                "bgm_vol": float(st.session_state.get(f"{TAB_KEY}_bgm_vol", 0.20)),
+                "avatar_on": bool(avatar_enabled),
+                "avatar_id": str(avatar_id),
+                "avatar_scale": float(avatar_scale),
+                "avatar_position": str(avatar_position),
+                "use_rhubarb": True,
+            }
+
+            meta = {
+                "topic": selected_folder,
+                "mode": "AutoStock",
+                "manifest": str(manifest_path),
+                "post": post,
+            }
+
+            job_id = js.enqueue(user=user, cmd=cmd_args, cwd=str(ws_root), env=env, meta=meta)
+            state["last_job_id"] = job_id
+
+            st.toast(f"✅ Job queued: {job_id}", icon="✅")
+            st.rerun()
+
+        except ManifestBuildError as e:
+            state["last_error"] = str(e)
+        except Exception as e:
+            state["last_error"] = f"Unexpected error: {type(e).__name__}: {e}"
+
+    # === stop last job ===
+    if stop_clicked:
+        jid = state.get("last_job_id")
+        if jid:
+            js = JobStore(Path(ws_root) / "jobs")
+            ok = js.stop(str(jid))
+            st.toast("🛑 Job dihentikan." if ok else "⚠️ Job tidak ditemukan / sudah selesai.", icon="🛑")
+        else:
+            st.toast("⚠️ Tidak ada job terakhir.", icon="⚠️")
+        st.rerun()
+
+    # ---- Status / Logs ----
+    st.markdown("---")
+    st.markdown("### 📟 Status")
+
+    if state.get("last_error"):
+        st.error(state["last_error"])
+
+    jid = state.get("last_job_id")
+    if jid:
+        st.success("✅ Proses berjalan di background.")
+        st.text_input("Job ID", value=str(jid), disabled=True)
+        st.caption("Buka tab **Jobs List** untuk melihat status & log.")

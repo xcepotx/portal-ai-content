@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Ada pohon yang “berjalan”",
+  "hook": "Pohon pindah tempat?",
+  "cta": "Kamu mau versi fakta alam “aneh” lagi?",
+  "query": "",
+  "bg": {
+    "query": "mangrove roots forest realistic photo",
+    "variants": [
+      "tree roots moving soil",
+      "mangrove forest"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

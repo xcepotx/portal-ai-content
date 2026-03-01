@@ -1,0 +1,94 @@
+{
+  "version": "1.0",
+  "mode": "auto_stock",
+  "created_at": "20260218_145204",
+  "input": {
+    "content_file": "/home/ubuntu01/yt-automation-onefact-ind/contents/faktaunik/auto_017.txt",
+    "keyword": "cloud and rain",
+    "stock_source": "both"
+  },
+  "output": {
+    "orientation": "9:16",
+    "target_duration": 30.0,
+    "final_duration": 22.073469,
+    "format": "mp4",
+    "aspect": "9:16",
+    "output_dir": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated"
+  },
+  "audio": {
+    "tts_enabled": true,
+    "tts_engine": "edge",
+    "tts_voice": "id-ID-ArdiNeural",
+    "tts_speed": 1.0,
+    "audio_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_145204/tts_parts/tts_merged.mp3",
+    "audio_duration": 22.073469,
+    "tts_error": null
+  },
+  "captions": {
+    "enabled": true,
+    "srt_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_145204/captions.srt",
+    "font_size": 12,
+    "style_name": "Modern Subtitle",
+    "position_name": "Bottom",
+    "style": {
+      "type": "drawtext",
+      "font_weight": "semibold",
+      "fill": "white",
+      "stroke": "black",
+      "stroke_width": 2,
+      "font_size": 12,
+      "box": true,
+      "box_color": "black",
+      "box_opacity": 0.35,
+      "box_padding": 14
+    },
+    "position": {
+      "anchor": "bottom_center",
+      "y": 0.88
+    }
+  },
+  "bgm": {
+    "enabled": true,
+    "volume": 0.2
+  },
+  "render": {
+    "handle": "@NgelucuShop",
+    "watermark_enabled": true,
+    "watermark_opacity": 120,
+    "watermark_position": "top-right",
+    "hook_subtitle": "FAKTA UNIK"
+  },
+  "scenes": [
+    {
+      "kind": "hook",
+      "duration": 3.2527614663917,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_145204/clips/stock_01_pexels_11208143.mp4",
+      "text_overlay": "Tahukah kamu?"
+    },
+    {
+      "kind": "scene",
+      "duration": 4.491905170462053,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_145204/clips/stock_02_pexels_27440552.mp4",
+      "text_overlay": null
+    },
+    {
+      "kind": "scene",
+      "duration": 5.49348686168296,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_145204/clips/stock_03_pexels_34786652.mp4",
+      "text_overlay": null
+    },
+    {
+      "kind": "scene",
+      "duration": 5.187945444334951,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_145204/clips/stock_04_pexels_9427270.mp4",
+      "text_overlay": null
+    },
+    {
+      "kind": "cta",
+      "duration": 3.647370057128335,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_145204/clips/stock_05_pexels_17096589.mp4",
+      "text_overlay": "Follow untuk fakta menarik lainnya!"
+    }
+  ],
+  "assets_dir": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_145204"
+}

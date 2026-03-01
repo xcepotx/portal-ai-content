@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Ada fenomena “api dingin” di laut",
+  "hook": "Api tapi di air?",
+  "cta": "Mau fakta laut yang lebih aneh?",
+  "query": "",
+  "bg": {
+    "query": "underwater glowing phenomenon realistic photo",
+    "variants": [
+      "underwater flare",
+      "ocean glow night"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

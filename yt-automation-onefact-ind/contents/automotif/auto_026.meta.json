@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Pakai engine brake di turunan",
+  "hook": "Turunan panjang jangan cuma rem!",
+  "cta": "Kalau turunan, kamu pakai engine brake?",
+  "query": "",
+  "bg": {
+    "query": "car downhill driving engine braking realistic photo",
+    "variants": [
+      "mountain road car braking",
+      "downhill road driving"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

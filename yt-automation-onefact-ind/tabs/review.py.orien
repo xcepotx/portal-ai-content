@@ -1,0 +1,332 @@
+import os
+import re
+import time
+import html
+import sys
+import subprocess
+import streamlit as st
+
+from core import helpers
+from ytshorts.review_manager import REVIEW_DIR, load_project_state, update_segment_image
+
+
+def _parse_progress_line(line: str) -> int | None:
+    """
+    Ambil persen hanya dari baris yang mengandung % atau frame_index.
+    Return int 0..100 atau None kalau tidak ada.
+    """
+    if ("%" not in line) and ("frame_index" not in line.lower()):
+        return None
+    m = re.search(r"(\d{1,3})\s*%", line)
+    if not m:
+        return None
+    v = int(m.group(1))
+    if 0 <= v <= 100:
+        return v
+    return None
+
+
+def render(ctx):
+    config = ctx.get("config", {})
+
+    # ===== CSS logbox elegan (mirip long video) =====
+    st.markdown("""
+    <style>
+    .rv-logbox{
+      height: 280px;
+      overflow-y: auto;
+      border-radius: 14px;
+      padding: 12px 14px;
+      margin-top: 8px;
+      margin-bottom: 14px;
+
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.10);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.20);
+      backdrop-filter: blur(10px);
+
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: rgba(255,255,255,0.90);
+    }
+    @media (prefers-color-scheme: light){
+      .rv-logbox{
+        background: rgba(0,0,0,0.03);
+        border: 1px solid rgba(0,0,0,0.10);
+        color: rgba(0,0,0,0.88);
+      }
+    }
+    .rv-logbox::-webkit-scrollbar{ width: 10px; }
+    .rv-logbox::-webkit-scrollbar-thumb{
+      background: rgba(255,255,255,0.18);
+      border-radius: 999px;
+      border: 2px solid transparent;
+      background-clip: content-box;
+    }
+    @media (prefers-color-scheme: light){
+      .rv-logbox::-webkit-scrollbar-thumb{ background: rgba(0,0,0,0.18); }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.subheader("🖼️ Review & Fix Assets")
+    st.info("Edit gambar sebelum video dirender. Gunakan tombol 'Prepare Review' di Control Panel dulu.")
+
+    # ===== STATE =====
+    if "rv_running" not in st.session_state:
+        st.session_state.rv_running = False
+    if "rv_start_job" not in st.session_state:
+        st.session_state.rv_start_job = False
+    if "rv_progress" not in st.session_state:
+        st.session_state.rv_progress = 0
+    if "rv_selected_proj" not in st.session_state:
+        st.session_state.rv_selected_proj = ""
+    if "rv_log_path" not in st.session_state:
+        st.session_state.rv_log_path = ""
+
+    # ===== list projects =====
+    os.makedirs(REVIEW_DIR, exist_ok=True)
+    projects = [d for d in os.listdir(REVIEW_DIR) if os.path.isdir(os.path.join(REVIEW_DIR, d))]
+    projects.sort(key=lambda x: os.path.getmtime(os.path.join(REVIEW_DIR, x)), reverse=True)
+
+    if not projects:
+        st.warning("Belum ada project review. Silakan generate di Tab Control Panel dengan mode 'Prepare Review'.")
+        return
+
+    selected_proj = st.selectbox("Pilih Project:", projects, key="rv_proj_pick")
+    st.session_state.rv_selected_proj = selected_proj
+
+    state = load_project_state(selected_proj)
+    proj_path = os.path.join(REVIEW_DIR, selected_proj)
+    if not state:
+        st.error("Project state tidak ditemukan / corrupt.")
+        return
+
+    st.write(f"**Topik:** {state.get('topic','-')} | **Slug:** {state.get('slug','-')}")
+    st.divider()
+
+    # ===== per-segmen editor =====
+    lines = state.get("lines", [])
+    bg_files = state.get("bg_files", [])
+
+    for idx, (txt, bg_file) in enumerate(zip(lines, bg_files)):
+        with st.container():
+            c_img, c_txt, c_action = st.columns([2, 3, 2])
+
+            with c_img:
+                if bg_file:
+                    full_bg_path = os.path.join(proj_path, bg_file)
+                    if os.path.exists(full_bg_path):
+                        st.image(full_bg_path, width="stretch")
+                    else:
+                        st.error("File gambar hilang.")
+                else:
+                    st.warning("Tidak ada gambar untuk segmen ini.")
+
+            with c_txt:
+                st.markdown(f"**Segmen {idx+1}**")
+                st.info(f"🗣️ \"{txt}\"")
+
+            with c_action:
+                new_img = st.file_uploader(
+                    f"Ganti Gambar #{idx+1}",
+                    type=["jpg", "png", "webp"],
+                    key=f"rv_up_{selected_proj}_{idx}"
+                )
+                if new_img:
+                    if st.button(
+                        f"💾 Simpan Gambar #{idx+1}",
+                        key=f"rv_save_img_{selected_proj}_{idx}",
+                        use_container_width=True
+                    ):
+                        update_segment_image(selected_proj, idx, new_img)
+                        st.success("Tersimpan!")
+                        time.sleep(0.2)
+                        st.rerun()
+
+        st.divider()
+
+    # ===== FINAL RENDER =====
+    st.header("🎬 Finalisasi")
+
+    stop_col1, stop_col2, stop_col3 = st.columns([2, 1, 2])
+
+    pid = helpers.get_pid()
+
+    with stop_col1:
+        run_btn = st.button(
+            "🚀 Render Video Ini Sekarang",
+            type="primary",
+            use_container_width=True,
+            disabled=st.session_state.rv_running
+        )
+
+    with stop_col2:
+        stop_btn = st.button(
+            "🛑 STOP",
+            type="primary",
+            use_container_width=True,
+            disabled=not st.session_state.rv_running
+        )
+
+    with stop_col3:
+        if st.session_state.rv_running and pid:
+            st.warning(f"⚠️ Running (PID: {pid})")
+        elif st.session_state.rv_running:
+            st.info("⏳ Starting...")
+        else:
+            st.success("✅ Idle")
+
+    # ===== ACTION STOP =====
+    if stop_btn:
+        helpers.kill_running_process()
+        st.session_state.rv_running = False
+        st.session_state.rv_start_job = False
+        st.session_state.rv_progress = 0
+        st.session_state.rv_log_path = ""
+        st.toast("🛑 Render review dihentikan.", icon="🛑")
+        time.sleep(0.2)
+        st.rerun()
+
+    # ===== ACTION RUN (set state + rerun) =====
+    if run_btn:
+        helpers.clear_pid()
+        st.session_state.rv_running = True
+        st.session_state.rv_start_job = True
+        st.session_state.rv_progress = 0
+
+        log_path = helpers.make_log_path("review")
+        st.session_state.rv_log_path = log_path
+
+        # tulis header log
+        cmd_render = [sys.executable, "-u", "main.py", "--render-review", selected_proj]
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"=== REVIEW RENDER START {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+            f.write("CMD: " + " ".join(cmd_render) + "\n")
+            f.write("===========================================\n")
+
+        st.toast("🚀 Mulai render review.", icon="🚀")
+        st.rerun()
+
+    # ===== JOB RUNNER (REAL-TIME, seperti long video) =====
+    if st.session_state.rv_running and st.session_state.rv_start_job:
+        st.session_state.rv_start_job = False  # jangan start ulang saat rerun
+
+        # UI holders (simple label, no expander arrow)
+        status_label = st.empty()
+	    p_holder = st.empty()
+	    log_placeholder = st.empty()
+
+	    # init progress bar (single)
+	    p_bar = p_holder.progress(0.0)
+
+	    logs = []
+	    MAX_LINES = 250
+	    last_log_line = None
+
+	    # project yang dipilih
+	    selected_proj = st.session_state.get("rv_selected_proj") or selected_proj
+	    cmd_render = [sys.executable, "-u", "main.py", "--render-review", selected_proj]
+
+	    proc = None
+	    log_path = st.session_state.get("rv_log_path", "")
+
+	    # pastikan folder log ada
+	    if log_path:
+	        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+
+	    try:
+	        status_label.markdown("**⏳ Rendering review video...**")
+
+	        proc = subprocess.Popen(
+	            cmd_render,
+	            stdout=subprocess.PIPE,
+	            stderr=subprocess.STDOUT,
+	            text=True,
+	            bufsize=1,
+	            universal_newlines=True
+	        )
+
+	        # simpan PID biar tombol STOP bisa kill
+	        helpers.clear_pid()
+	        helpers.save_pid(proc.pid)
+
+	        # tulis header log
+	        log_f = None
+	        if log_path:
+	            log_f = open(log_path, "a", encoding="utf-8", buffering=1)
+	            log_f.write(f"=== REVIEW RENDER START {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+	            log_f.write("CMD: " + " ".join(cmd_render) + "\n")
+	            log_f.write("===========================================\n")
+
+	        while True:
+	            line = proc.stdout.readline() if proc.stdout else ""
+	            if not line and proc.poll() is not None:
+	                break
+	            if not line:
+	                continue
+
+	            # handle \r progress
+	            parts = line.replace("\r", "\n").split("\n")
+	            for p in parts:
+	                clean_l = p.strip()
+	                if not clean_l:
+	                    continue
+
+	                # anti duplicate consecutive
+	                if clean_l == last_log_line:
+	                    continue
+	                last_log_line = clean_l
+
+	                # progress detect (pakai % / frame_index)
+	                if ("%" in clean_l) or ("frame_index" in clean_l.lower()):
+	                    m = re.search(r"(\d{1,3})\s*%", clean_l)
+	                    if m:
+	                        val = int(m.group(1))
+	                        prog = min(max(val / 100.0, 0.0), 1.0)
+	                        p_bar.progress(prog)
+	                        status_label.markdown("**⏳ Rendering review video...**")  # label aja (tanpa %)
+	                    continue
+
+	                # tulis ke file log
+	                if log_f:
+	                    log_f.write(clean_l + "\n")
+
+	                # update logbox UI
+	                logs.append(clean_l)
+	                if len(logs) > MAX_LINES:
+	                    logs = logs[-MAX_LINES:]
+
+	                safe_lines = [html.escape(x) for x in logs]
+	                log_placeholder.markdown(
+	                    f'<div class="cp-logbox">{"<br>".join(safe_lines)}</div>',
+	                    unsafe_allow_html=True
+	                )
+
+	        # selesai
+	        rc = proc.returncode
+	        if rc == 0:
+	            p_bar.progress(1.0)
+	            status_label.markdown("**✅ Render review selesai!**")
+	            st.toast("✅ Render review selesai!", icon="✅")
+	        elif rc == -15:
+	            status_label.markdown("**🛑 Dihentikan oleh user.**")
+	            st.toast("🛑 Render dihentikan.", icon="🛑")
+	        else:
+	            status_label.markdown("**❌ Render gagal. Cek log.**")
+	            st.toast("❌ Render gagal.", icon="❌")
+
+	    except Exception as e:
+	        status_label.markdown(f"**❌ System error:** `{e}`")
+	    finally:
+	        st.session_state.rv_running = False
+	        helpers.clear_pid()
+	        try:
+	            if log_f:
+	                log_f.write(f"=== REVIEW RENDER END {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+	                log_f.close()
+	        except:
+	            pass
+
+	    st.rerun()

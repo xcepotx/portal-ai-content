@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Matikan beban listrik sebelum start",
+  "hook": "Start mesin jangan sambil AC nyala!",
+  "cta": "Kamu biasa start dengan AC mati?",
+  "query": "",
+  "bg": {
+    "query": "car dashboard AC off before start realistic photo",
+    "variants": [
+      "car ignition start",
+      "car dashboard controls"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

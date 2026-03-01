@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Cuci kolong mobil setelah hujan/banjir",
+  "hook": "Karat sering mulai dari bawah!",
+  "cta": "Kapan terakhir cuci kolong?",
+  "query": "",
+  "bg": {
+    "query": "car undercarriage wash realistic photo",
+    "variants": [
+      "undercarriage cleaning",
+      "car wash underbody"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

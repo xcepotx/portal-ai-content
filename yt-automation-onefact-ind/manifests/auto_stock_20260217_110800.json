@@ -1,0 +1,82 @@
+{
+  "version": "1.0",
+  "mode": "auto_stock",
+  "created_at": "20260217_110800",
+  "input": {
+    "content_file": "/home/ubuntu01/yt-automation-onefact-ind/contents/faktaunik/auto_001.txt",
+    "keyword": "TITLE Fakta Unik Dunia TOPIC faktaunik SECONDS 30",
+    "stock_source": "pexels"
+  },
+  "output": {
+    "orientation": "9:16",
+    "target_duration": 30.0,
+    "final_duration": 33.192,
+    "format": "mp4",
+    "aspect": "9:16",
+    "output_dir": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated"
+  },
+  "audio": {
+    "tts_enabled": true,
+    "tts_engine": "gtts",
+    "tts_voice": "id-ID-ArdiNeural",
+    "tts_speed": 1.0,
+    "audio_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260217_110800/tts.mp3",
+    "audio_duration": 33.192
+  },
+  "captions": {
+    "enabled": true,
+    "srt_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260217_110800/captions.srt",
+    "font_size": 12,
+    "style_name": "Modern Subtitle",
+    "position_name": "Bottom",
+    "style": {
+      "type": "drawtext",
+      "font_weight": "semibold",
+      "fill": "white",
+      "stroke": "black",
+      "stroke_width": 2,
+      "font_size": 12,
+      "box": true,
+      "box_color": "black",
+      "box_opacity": 0.35,
+      "box_padding": 14
+    },
+    "position": {
+      "anchor": "bottom_center",
+      "y": 0.88
+    }
+  },
+  "scenes": [
+    {
+      "kind": "hook",
+      "duration": 4.769349705353093,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260217_110800/clips/stock_01_pexels_13046891.mp4",
+      "text_overlay": "Tahukah kamu?"
+    },
+    {
+      "kind": "scene",
+      "duration": 7.751065038347482,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260217_110800/clips/stock_02_pexels_6532225.mp4",
+      "text_overlay": null
+    },
+    {
+      "kind": "scene",
+      "duration": 8.53508238645112,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260217_110800/clips/stock_03_pexels_8322205.mp4",
+      "text_overlay": null
+    },
+    {
+      "kind": "scene",
+      "duration": 7.924227288346411,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260217_110800/clips/stock_04_pexels_27451034.mp4",
+      "text_overlay": null
+    },
+    {
+      "kind": "cta",
+      "duration": 4.212275581501892,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260217_110800/clips/stock_05_pexels_32024921.mp4",
+      "text_overlay": "Follow untuk fakta menarik lainnya!"
+    }
+  ],
+  "assets_dir": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260217_110800"
+}

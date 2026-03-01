@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Perhatikan kipas radiator",
+  "hook": "Suhu naik saat macet? Cek kipas!",
+  "cta": "Kipas radiator kamu normal?",
+  "query": "",
+  "bg": {
+    "query": "car radiator cooling fan realistic photo",
+    "variants": [
+      "radiator fan motor",
+      "engine cooling fan"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

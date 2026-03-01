@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Gunakan torque yang benar saat pasang roda",
+  "hook": "Baut roda terlalu kencang bisa bahaya!",
+  "cta": "Kamu pasang roda pakai torque wrench?",
+  "query": "",
+  "bg": {
+    "query": "torque wrench tightening lug nuts realistic photo",
+    "variants": [
+      "lug nut torque wrench",
+      "wheel bolts tightening"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

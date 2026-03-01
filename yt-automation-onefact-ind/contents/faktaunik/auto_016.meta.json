@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Pisang itu buah beri",
+  "hook": "Stroberi itu bukan beri, loh!",
+  "cta": "Baru tahu atau udah tahu?",
+  "query": "",
+  "bg": {
+    "query": "banana bunch realistic photo",
+    "variants": [
+      "ripe bananas close up",
+      "banana tree fruit"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

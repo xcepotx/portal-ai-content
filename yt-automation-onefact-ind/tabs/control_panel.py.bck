@@ -1,0 +1,1745 @@
+import os
+import re
+import time
+import json
+import hashlib
+import glob
+import html
+import shlex
+import sys
+import subprocess
+import streamlit as st
+
+from pathlib import Path
+from core import helpers
+
+# =========================
+# NON-BLOCKING JOB RUNNER
+# =========================
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+MAIN_PY = (REPO_ROOT / "main.py").resolve()
+
+def _effective_profiles_and_keys(ctx: dict):
+    """
+    Return:
+      - user_profile (decrypt)
+      - global_profile (decrypt)
+      - effective api keys:
+          elevenlabs from user
+          gemini/pexels/pixabay from __global__
+    """
+    ctx = ctx or {}
+    services = ctx.get("services")
+    user = ctx.get("auth_user")
+
+    user_prof = ctx.get("profile") or {}
+    global_prof = {}
+
+    api_eff = ctx.get("api_keys") or {}
+
+    if services and hasattr(services, "profile_store"):
+        ps = services.profile_store
+
+        try:
+            global_prof = ps.get_profile("__global__", decrypt_secrets=True) or {}
+        except Exception:
+            global_prof = {}
+
+        if user:
+            try:
+                if not user_prof:
+                    user_prof = ps.get_profile(user, decrypt_secrets=True) or {}
+            except Exception:
+                user_prof = user_prof or {}
+
+            # effective api keys (prefer method if exists)
+            if not api_eff:
+                if hasattr(ps, "get_effective_api_keys"):
+                    api_eff = ps.get_effective_api_keys(user, decrypt_secrets=True) or {}
+                else:
+                    u_api = (user_prof.get("api_keys") or {})
+                    g_api = (global_prof.get("api_keys") or {})
+                    api_eff = {
+                        "elevenlabs": str(u_api.get("elevenlabs", "") or ""),
+                        "gemini": str(g_api.get("gemini", "") or ""),
+                        "pexels": str(g_api.get("pexels", "") or ""),
+                        "pixabay": str(g_api.get("pixabay", "") or ""),
+                    }
+
+    return user_prof or {}, global_prof or {}, api_eff or {}
+
+def _get_main_help_text(main_py: Path) -> str:
+    """Ambil teks --help dari main.py untuk deteksi flag yang supported."""
+    try:
+        p = subprocess.run(
+            [sys.executable, str(main_py), "--help"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            timeout=6,
+        )
+        return (p.stdout or "")
+    except Exception:
+        return ""
+
+
+def _supports_flag(help_text: str, flag: str) -> bool:
+    return (flag in (help_text or ""))
+
+
+def _list_avatar_ids_repo(repo_root: Path) -> list[str]:
+    avatars_dir = (repo_root / "assets" / "avatars").resolve()
+    if not avatars_dir.exists():
+        return []
+    ids = [p.name for p in avatars_dir.iterdir() if p.is_dir() and not p.name.startswith(".")]
+    ids.sort(key=lambda x: x.lower())
+    return ids
+
+
+def _list_bgm_files_repo(repo_root: Path) -> list[str]:
+    bgm_dir = (repo_root / "assets" / "bgm").resolve()
+    if not bgm_dir.exists():
+        return []
+    files = [p.name for p in bgm_dir.iterdir() if p.is_file() and p.suffix.lower() in (".mp3", ".wav", ".m4a", ".aac")]
+    files.sort(key=lambda x: x.lower())
+    return files
+
+def _ws_root(ctx: dict | None) -> Path:
+    if isinstance(ctx, dict) and isinstance(ctx.get("paths"), dict) and ctx["paths"].get("user_root"):
+        return Path(ctx["paths"]["user_root"]).resolve()
+    # fallback standalone
+    return REPO_ROOT
+
+def _to_float_opacity_01(v) -> float:
+    """
+    Normalisasi opacity agar selalu 0.0..1.0.
+    Support input lama (0..255) dan input baru (0.0..1.0).
+    """
+    try:
+        f = float(v)
+        # jika ternyata 0..255 (legacy), convert ke 0..1
+        if f > 1.0:
+            f = f / 255.0
+        # clamp
+        if f < 0.0:
+            f = 0.0
+        if f > 1.0:
+            f = 1.0
+        return f
+    except Exception:
+        return 0.8
+
+
+def _to_int_opacity_255(v) -> int:
+    """
+    Normalize opacity ke int 0..255.
+    Support input lama 0.0..1.0 dan input baru 0..255.
+    """
+    try:
+        f = float(v)
+        if 0.0 <= f <= 1.0:
+            f = f * 255.0
+        i = int(round(f))
+        return max(0, min(255, i))
+    except Exception:
+        return 120
+
+def _find_latest_video(ws_root: Path, topic: str) -> Path | None:
+    ws_root = Path(ws_root).resolve()
+
+    # coba beberapa kandidat folder umum
+    candidates = [
+        ws_root / "outputs" / topic,
+        ws_root / "outputs",
+        ws_root / "renders" / topic,
+        ws_root / "renders",
+        ws_root / "out" / topic,
+        ws_root / "out",
+    ]
+
+    mp4s: list[Path] = []
+    for d in candidates:
+        if d.exists():
+            mp4s.extend(list(d.rglob("*.mp4")))
+
+    if not mp4s:
+        return None
+
+    mp4s.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return mp4s[0]
+
+def _build_base_cfg_from_profiles(user_prof: dict, global_prof: dict) -> tuple[dict, str]:
+    u = user_prof or {}
+    g = global_prof or {}
+
+    rd_user = (u.get("render_defaults") or {})
+    rd_global = (g.get("render_defaults") or {})
+    ch_user = (u.get("channel") or {})
+
+    # merge render_defaults: global -> user override
+    rd = dict(rd_global)
+    rd.update(rd_user)
+
+    # RULE: edge pool selalu dari GLOBAL (bukan user)
+    rd["edge_voice_pool_csv"] = str(rd_global.get("edge_voice_pool_csv", "") or "")
+
+    # edge defaults (active mengikuti user kalau ada)
+    edge_voice = (
+        rd.get("edge_voice")
+        or rd.get("edge_tts_voice")
+        or rd.get("EDGE_TTS_VOICE")
+        or os.getenv("EDGE_TTS_VOICE", "id-ID-ArdiNeural")
+    )
+    edge_rate = (
+        rd.get("edge_rate")
+        or rd.get("edge_tts_rate")
+        or rd.get("EDGE_TTS_RATE")
+        or os.getenv("EDGE_TTS_RATE", "+0%")
+    )
+
+    base_cfg = {
+        # Hook
+        "hook_sub": str(rd.get("hook_sub", "FAKTA CEPAT") or "FAKTA CEPAT"),
+        "hook_subtitles_csv": str(rd.get("hook_subtitles_csv", "") or ""),
+
+        # TTS
+        "tts_engine": str(rd.get("tts_engine", "gtts") or "gtts"),
+        "voice_id": str(rd.get("voice_id", "") or ""),
+        "edge_voice": str(edge_voice or "id-ID-ArdiNeural"),
+        "edge_rate": str(edge_rate or "+0%"),
+        "edge_voice_pool_csv": str(rd.get("edge_voice_pool_csv", "") or ""),
+
+        # (opsional) global pool eleven (kalau nanti kamu tambahin di __global__)
+        "eleven_voice_pool_csv": str(rd.get("eleven_voice_pool_csv", "") or ""),
+
+        # Watermark
+        "no_watermark": bool(rd.get("no_watermark", False)),
+        "wm_handle": str(rd.get("watermark_handle", "") or ""),
+        "watermark_handles_csv": str(rd.get("watermark_handles_csv") or rd.get("watermark_handles") or ""),
+        "watermark_handle": str(rd.get("watermark_handle") or rd.get("wm_handle") or ""),
+        "wm_pos": str(rd.get("watermark_position", "top-right") or "top-right"),
+        "wm_opacity": _to_float_opacity_01(rd.get("watermark_opacity", 0.8)),
+
+        # Avatar (defaultnya dari global, bisa dioverride user)
+        "avatar_enabled": bool(rd.get("avatar_enabled", False)),
+        "avatar_id": str(rd.get("avatar_id", "neobyte") or "neobyte"),
+        "avatar_position": str(rd.get("avatar_position", "bottom-right") or "bottom-right"),
+        "avatar_scale": float(rd.get("avatar_scale", 0.20) or 0.20),
+
+        # channel
+        "enable_upload": bool(ch_user.get("enable_upload", False)),
+        "enable_tg": bool(ch_user.get("telegram_notif", False)),
+        "auto_hash": bool(ch_user.get("auto_hashtags", True)),
+        "upload_date": str(ch_user.get("default_publish_schedule", "") or ""),
+        "use_prime": True,
+    }
+
+    # rev: ikut perubahan user + global
+    rev = f"{str(u.get('updated_at','') or '')}|{str(g.get('updated_at','') or '')}"
+    if rev == "|":
+        try:
+            payload = json.dumps({"u": u, "g": g}, sort_keys=True, ensure_ascii=False)
+            rev = hashlib.md5(payload.encode("utf-8")).hexdigest()
+        except Exception:
+            rev = "rev_fallback"
+
+    return base_cfg, rev
+    
+def _sync_cp_session_defaults(base_cfg: dict, prof_rev: str) -> None:
+    if st.session_state.get("cp_profile_rev") == prof_rev:
+        return
+
+    st.session_state["cp_profile_rev"] = prof_rev
+
+    # Hook
+    st.session_state["cp_hook_sub"] = str(base_cfg.get("hook_sub", "FAKTA CEPAT") or "FAKTA CEPAT")
+
+    # TTS override
+    st.session_state["cp_tts_on"] = True
+    eng = str(base_cfg.get("tts_engine", "gtts") or "gtts")
+    st.session_state["cp_tts_engine_override"] = ("edge" if eng == "edge-tts" else eng)
+
+    st.session_state["cp_edge_voice_override"] = str(base_cfg.get("edge_voice", "id-ID-ArdiNeural") or "id-ID-ArdiNeural")
+    st.session_state["cp_edge_rate_override"] = str(base_cfg.get("edge_rate", "+0%") or "+0%")
+
+    # eleven defaults dari user voice_id
+    user_pool = _parse_list(str(base_cfg.get("voice_id", "") or ""))
+    st.session_state["cp_eleven_voice_override"] = (user_pool[0] if user_pool else "")
+    st.session_state["cp_eleven_pool"] = ", ".join(user_pool) if user_pool else ""
+    st.session_state["cp_eleven_mode"] = "fixed"
+    st.session_state["cp_tts_seed"] = ""
+
+    # Watermark override (ikut profile)
+    st.session_state["cp_wm_on"] = (not bool(base_cfg.get("no_watermark", False)))
+    wm_list = _parse_list(str(base_cfg.get("watermark_handles_csv", "") or ""))
+    default_wm = str(base_cfg.get("wm_handle", "") or "")
+    if (not default_wm) and wm_list:
+        default_wm = wm_list[0]
+
+    st.session_state["cp_wm_handle_override"] = default_wm
+    st.session_state["cp_wm_pos_override"] = str(base_cfg.get("wm_pos", "top-right") or "top-right")
+    st.session_state["cp_wm_op_override"] = int(_to_int_opacity_255(base_cfg.get("wm_opacity", 0.8)))
+
+    # Avatar (ikut global+user merged)
+    st.session_state["cp_avatar_on"] = bool(base_cfg.get("avatar_enabled", False))
+    st.session_state["cp_avatar_id"] = str(base_cfg.get("avatar_id", "neobyte") or "neobyte")
+    st.session_state["cp_avatar_scale"] = float(base_cfg.get("avatar_scale", 0.20) or 0.20)
+
+    # BGM default (biar aman, OFF)
+    st.session_state["cp_bgm_on"] = False
+    st.session_state["cp_bgm_vol"] = float(st.session_state.get("cp_bgm_vol", 0.20))
+    st.session_state["cp_bgm_file"] = str(st.session_state.get("cp_bgm_file", "(auto/latest)"))
+    
+def _render_cp_global_settings(config_sidebar: dict) -> dict:
+    """
+    Mirror dari ui/sidebar.py, tapi dengan layout melebar (2 kolom) supaya tidak vertikal panjang.
+    Return dict config yang dipakai control_panel untuk build cmd_args.
+    """
+
+    # helper columns (biar aman kalau Streamlit versi lama belum support gap)
+    try:
+        colL, colR = st.columns(2, gap="large")
+    except TypeError:
+        colL, colR = st.columns(2)
+
+    # =========================
+    # LEFT COLUMN
+    # =========================
+    with colL:
+        _cp_subheader("🎣 Hook & CTA")
+        hook_list = _parse_list(str(config_sidebar.get("hook_subtitles_csv", "") or ""))
+        current_hook = str(config_sidebar.get("hook_sub", "FAKTA CEPAT") or "FAKTA CEPAT")
+
+        if hook_list:
+            if current_hook not in hook_list:
+                current_hook = hook_list[0]
+            hook_sub = st.selectbox(
+                "Hook Subtitle",
+                hook_list,
+                index=hook_list.index(current_hook),
+                key="cp_hook_sub",
+            )
+        else:
+            st.warning("Hook subtitle list belum di-set di My Profile.")
+            hook_sub = st.text_input(
+                "Hook Subtitle",
+                value=current_hook,
+                key="cp_hook_sub",
+                disabled=True,
+            )
+
+        _cp_subheader("🤖 Audio (TTS)")
+        default_tts = str(config_sidebar.get("tts_engine", "gtts") or "gtts")
+        if default_tts == "edge-tts":
+            default_tts = "edge"
+
+        tts_options = ["gtts", "edge"]   # edge selalu tersedia
+        if bool(config_sidebar.get("has_elevenlabs")):
+            tts_options = ["elevenlabs"] + tts_options
+
+        if default_tts not in tts_options:
+            default_tts = tts_options[0]
+
+        def _tts_label(x: str) -> str:
+            return "edge" if x == "edge" else x
+
+        tts_engine = st.selectbox(
+            "TTS Engine",
+            tts_options,
+            index=tts_options.index(default_tts),
+            key="cp_tts_engine",
+            format_func=_tts_label,
+        )
+
+        eleven_voice = ""
+        edge_voice = ""
+        edge_rate = ""
+
+        if tts_engine == "elevenlabs":
+            st.info("ℹ️ Biarkan kosong untuk Random Pool dari `main.py`.")
+            eleven_voice = st.text_input(
+                "Custom Voice ID (Opsional)",
+                value=str(config_sidebar.get("eleven_voice", "") or ""),
+                placeholder="Contoh: 21m00Tcm4TlvDq8ikWAM",
+                key="cp_eleven_voice",
+            )
+            st.caption("Pastikan API Key sudah ada di .env")
+
+        if tts_engine == "edge":
+            # pool global dari __global__ render_defaults
+            voice_pool = _parse_list(str(config_sidebar.get("edge_voice_pool_csv", "") or ""))
+
+            # default dari profile user (render_defaults.edge_voice)
+            prof_default = str(
+                config_sidebar.get("edge_voice", os.getenv("EDGE_TTS_VOICE", "id-ID-ArdiNeural")) or "id-ID-ArdiNeural"
+            ).strip()
+
+            # fallback pool jika global kosong (optional via ENV)
+            if not voice_pool:
+                env_pool = _parse_list(os.getenv("EDGE_VOICE_POOL_CSV", "") or os.getenv("EDGE_VOICE_POOL", ""))
+                if env_pool:
+                    voice_pool = env_pool
+                    st.info("ℹ️ Edge voice pool global belum di-set. Menggunakan pool dari ENV (EDGE_VOICE_POOL_CSV).")
+                else:
+                    # fallback default (silakan ubah list ini sesuai kebutuhan)
+                    voice_pool = ["id-ID-ArdiNeural", "id-ID-GadisNeural"]
+                    st.info("ℹ️ Edge voice pool global belum di-set. Menggunakan default pool bawaan.")
+
+            # pastikan default profile selalu ada di dropdown
+            if prof_default and prof_default not in voice_pool:
+                voice_pool = [prof_default] + voice_pool
+
+            # init session state (agar default langsung aktif)
+            if "cp_edge_voice" not in st.session_state:
+                st.session_state["cp_edge_voice"] = prof_default
+            if "cp_edge_rate" not in st.session_state:
+                st.session_state["cp_edge_rate"] = str(config_sidebar.get("edge_rate", "+0%") or "+0%")
+
+            # validasi state: harus ada di options
+            if st.session_state["cp_edge_voice"] not in voice_pool:
+                st.session_state["cp_edge_voice"] = voice_pool[0]
+
+            edge_voice = st.selectbox(
+                "Edge Voice (dropdown)",
+                voice_pool,
+                key="cp_edge_voice",
+            )
+
+            edge_rate = st.text_input(
+                "Edge Rate",
+                key="cp_edge_rate",
+                help='Contoh: "+0%", "+10%", "-10%"',
+            )
+
+    # =========================
+    # RIGHT COLUMN
+    # =========================
+    with colR:
+        _cp_subheader("💧 Watermark")
+        no_watermark = st.checkbox(
+            "Disable Watermark",
+            value=bool(config_sidebar.get("no_watermark", False)),
+            key="cp_no_watermark",
+        )
+
+        # handle + position side-by-side
+        try:
+            w1, w2 = st.columns(2, gap="small")
+        except TypeError:
+            w1, w2 = st.columns(2)
+
+        wm_list = _parse_list(str(config_sidebar.get("watermark_handles_csv", "") or ""))
+
+        # ambil handle aktif dari profile / base_cfg
+        current_handle = str(
+            config_sidebar.get("watermark_handle")
+            or config_sidebar.get("wm_handle")
+            or ""
+        ).strip()
+
+        with w1:
+            if wm_list:
+                # pastikan state valid
+                if ("cp_wm_handle" not in st.session_state) or (st.session_state["cp_wm_handle"] not in wm_list):
+                    st.session_state["cp_wm_handle"] = current_handle if current_handle in wm_list else wm_list[0]
+
+                wm_handle = st.selectbox("Handle / Text", wm_list, key="cp_wm_handle")
+
+            else:
+                st.warning("Watermark handles belum diset di My Profile.")
+                # jangan pakai value=... kalau key sudah/akan diisi session_state
+                if "cp_wm_handle" not in st.session_state:
+                    st.session_state["cp_wm_handle"] = current_handle
+
+                wm_handle = st.text_input("Handle / Text", key="cp_wm_handle", disabled=True)
+
+        wm_pos_opts = ["top-right", "top-left", "bottom-right", "bottom-left"]
+        default_pos = str(config_sidebar.get("wm_pos", "top-right"))
+        pos_index = wm_pos_opts.index(default_pos) if default_pos in wm_pos_opts else 0
+
+        with w2:
+            if "cp_wm_pos" not in st.session_state or st.session_state["cp_wm_pos"] not in wm_pos_opts:
+                st.session_state["cp_wm_pos"] = str(config_sidebar.get("wm_pos", "top-right") or "top-right")
+
+            wm_pos = st.selectbox("Position", wm_pos_opts, key="cp_wm_pos")
+
+        if "cp_wm_opacity" not in st.session_state:
+            st.session_state["cp_wm_opacity"] = int(_to_int_opacity_255(config_sidebar.get("wm_opacity", 120)))
+        else:
+            st.session_state["cp_wm_opacity"] = int(_to_int_opacity_255(st.session_state.get("cp_wm_opacity", 120)))
+
+        wm_opacity = st.slider(
+            "Opacity (0-255)",
+            0, 255,
+            step=1,
+            key="cp_wm_opacity",
+        )
+
+        _cp_subheader("📡 Upload & Notif")
+
+        # upload + tg side-by-side
+        try:
+            u1, u2 = st.columns(2, gap="small")
+        except TypeError:
+            u1, u2 = st.columns(2)
+
+        with u1:
+            enable_upload = st.checkbox(
+                "Auto Upload to YouTube",
+                value=bool(config_sidebar.get("enable_upload", False)),
+                key="cp_enable_upload",
+            )
+        with u2:
+            enable_tg = st.checkbox(
+                "Send Telegram Report",
+                value=bool(config_sidebar.get("enable_tg", False)),
+                key="cp_enable_tg",
+            )
+
+        upload_date = ""
+        use_prime = True
+        auto_hash = True
+
+        with st.expander("Upload Schedule Settings", expanded=False):
+            upload_date = st.text_input(
+                "Publish At",
+                value=str(config_sidebar.get("upload_date", "") or ""),
+                placeholder="YYYY-MM-DD HH:MM atau 'today 18:00'",
+                key="cp_upload_date",
+            )
+
+            try:
+                s1, s2 = st.columns(2, gap="small")
+            except TypeError:
+                s1, s2 = st.columns(2)
+
+            with s1:
+                use_prime = st.checkbox(
+                    "Auto Prime Time",
+                    value=bool(config_sidebar.get("use_prime", True)),
+                    key="cp_use_prime",
+                )
+            with s2:
+                auto_hash = st.checkbox(
+                    "Auto Hashtags",
+                    value=bool(config_sidebar.get("auto_hash", True)),
+                    key="cp_auto_hash",
+                )
+
+    return {
+        "hook_sub": hook_sub,
+        "tts_engine": tts_engine,
+        "eleven_voice": eleven_voice,
+        "edge_voice": edge_voice,
+        "edge_rate": edge_rate,
+        "no_watermark": no_watermark,
+        "wm_handle": wm_handle,
+        "wm_pos": wm_pos,
+        "wm_opacity": wm_opacity,
+        "enable_upload": enable_upload,
+        "enable_tg": enable_tg,
+        "upload_date": upload_date,
+        "use_prime": use_prime,
+        "auto_hash": auto_hash,
+    }
+
+def _start_job_pipe(cmd_args: list[str], cwd: str | None = None, env: dict | None = None) -> subprocess.Popen:
+    proc = subprocess.Popen(
+        cmd_args,
+        cwd=cwd,
+        env=env or os.environ.copy(),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        universal_newlines=True
+    )
+    return proc
+
+def _tail_log(log_path: str, max_lines: int = 40) -> list[str]:
+    if not log_path or not os.path.exists(log_path):
+        return []
+    try:
+        with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
+            lines = f.read().splitlines()
+        return lines[-max_lines:]
+    except Exception:
+        return []
+
+def _parse_progress(lines: list[str]) -> float:
+    """
+    Progress HANYA dari frame index / persentase render.
+    Kalau belum ada frame_index → 0.0
+    """
+    for ln in reversed(lines):
+        # contoh: "frame_index: 5% | 15/300"
+        m = re.search(r"(\d{1,3})\s*%", ln)
+        if m:
+            v = int(m.group(1))
+            return min(max(v / 100.0, 0.0), 1.0)
+
+    return 0.0
+
+def __parse_progress(lines: list[str]) -> float:
+    """
+    Parsing progress sederhana dari log main.py.
+    Sesuaikan kalau pola log kamu beda.
+    """
+    p = 0.0
+    for ln in reversed(lines):
+        # contoh: "frame_index: 5% | 15/300"
+        m = re.search(r"(\d+)%", ln)
+        if m:
+            v = int(m.group(1))
+            return min(max(v / 100.0, 0.0), 1.0)
+        if "TTS files:" in ln:
+            p = max(p, 0.10)
+        if "BG:" in ln:
+            p = max(p, 0.20)
+        if "Done:" in ln:
+            return 1.0
+    return p
+
+def _cp_subheader(text: str):
+    st.markdown(f"<div class='cp-subheader'>{html.escape(text)}</div>", unsafe_allow_html=True)
+
+def _cp_subsection(text: str):
+    st.markdown(f"<div class='cp-subsection'>{html.escape(text)}</div>", unsafe_allow_html=True)
+
+from pathlib import Path
+
+def _resolve_repo_root(ctx: dict | None) -> Path:
+    """
+    Cari repo yt-automation yang punya main.py.
+    Prioritas:
+    1) ctx['paths']['repo_root'] / ctx['paths']['automation_root'] (kalau ada)
+    2) parent dari file ini
+    3) sibling dari CWD: ../yt-automation*/main.py (kasus portal)
+    """
+    # 1) explicit from ctx (opsional, kalau portal nanti kamu tambah)
+    if isinstance(ctx, dict) and isinstance(ctx.get("paths"), dict):
+        for k in ("repo_root", "automation_root", "yt_root"):
+            v = ctx["paths"].get(k)
+            if v:
+                p = Path(v).expanduser().resolve()
+                if (p / "main.py").exists():
+                    return p
+
+    # 2) parents dari file ini
+    here = Path(__file__).resolve()
+    for p in [here.parent, *here.parents]:
+        if (p / "main.py").exists():
+            return p
+
+    # 3) sibling dari current working dir (umum: portal + repo di ../yt-automation-onefact-ind)
+    cwd = Path.cwd().resolve()
+    for base in [cwd, *cwd.parents]:
+        # contoh match: ../yt-automation-onefact-ind/main.py
+        for mp in base.glob("../yt-automation*/main.py"):
+            if mp.exists():
+                return mp.parent.resolve()
+
+    # last resort
+    return here.parents[1].resolve()
+
+def _parse_list(s: str) -> list[str]:
+    s = (s or "").replace("\n", ",")
+    out, seen = [], set()
+    for x in [t.strip() for t in s.split(",") if t.strip()]:
+        if x not in seen:
+            seen.add(x)
+            out.append(x)
+    return out
+
+def _get_profile_store(ctx: dict):
+    ctx = ctx or {}
+
+    # 1) services bisa object atau dict
+    services = ctx.get("services") or ctx.get("service") or ctx.get("svc")
+
+    if services:
+        # dict
+        if isinstance(services, dict):
+            for k in ("profile_store", "profiles", "profileStore"):
+                ps = services.get(k)
+                if ps:
+                    return ps
+        # object
+        else:
+            for attr in ("profile_store", "profiles"):
+                if hasattr(services, attr):
+                    return getattr(services, attr)
+
+    # 2) kadang langsung di ctx
+    for k in ("profile_store", "profiles"):
+        ps = ctx.get(k)
+        if ps:
+            return ps
+
+    return None
+
+
+def _ps_get_profile(ps, name: str) -> dict:
+    if ps is None:
+        return {}
+    try:
+        return ps.get_profile(name, decrypt_secrets=True) or {}
+    except TypeError:
+        # beda signature
+        try:
+            return ps.get_profile(name, decrypt=True) or {}
+        except TypeError:
+            try:
+                return ps.get_profile(name) or {}
+            except Exception:
+                return {}
+    except Exception:
+        return {}
+
+def _global_render_defaults(ctx: dict) -> dict:
+    # 1) coba dari profile_store kalau ada
+    ctx = ctx or {}
+    services = ctx.get("services")
+    ps = None
+    if services:
+        if isinstance(services, dict):
+            ps = services.get("profile_store")
+        else:
+            ps = getattr(services, "profile_store", None)
+
+    if ps:
+        try:
+            g = ps.get_profile("__global__", decrypt_secrets=True) or {}
+            if isinstance(g, dict):
+                return g.get("render_defaults", {}) or {}
+        except Exception:
+            pass
+
+    # 2) fallback: baca data/profiles.json (non-secret fields OK)
+    data = _load_profiles_json()
+    g = ((data.get("profiles") or {}).get("__global__") or {})
+    if isinstance(g, dict):
+        return g.get("render_defaults", {}) or {}
+    return {}
+
+def _get_auth_user(ctx: dict) -> str:
+    ctx = ctx or {}
+    for k in ("auth_user", "user", "username", "profile_name"):
+        v = ctx.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return ""
+
+def _effective_profile_and_keys(ctx: dict):
+    """
+    RULE:
+    - elevenlabs: STRICT dari USER profile
+    - gemini/pexels/pixabay: STRICT dari __global__
+    """
+    ctx = ctx or {}
+    ps = _get_profile_store(ctx)
+    user = _get_auth_user(ctx)
+
+    prof = ctx.get("profile") or {}
+    global_prof = _ps_get_profile(ps, "__global__")
+
+    if user:
+        prof = _ps_get_profile(ps, user) or prof or {}
+
+    u_api = (prof.get("api_keys") or {})
+    g_api = ((global_prof or {}).get("api_keys") or {})
+
+    api_eff = {
+        "elevenlabs": str(u_api.get("elevenlabs", "") or ""),
+        "gemini": str(g_api.get("gemini", "") or ""),
+        "pexels": str(g_api.get("pexels", "") or ""),
+        "pixabay": str(g_api.get("pixabay", "") or ""),
+    }
+
+    return prof or {}, global_prof or {}, api_eff
+
+def _build_base_cfg_from_profile(ctx: dict) -> tuple[dict, str]:
+    """
+    Backward-compat wrapper.
+    render() masih manggil nama lama ini.
+    """
+    # Ambil user & global profile dari helper baru
+    prof, global_prof, api_eff = _effective_profile_and_keys(ctx)
+
+    # inject biar builder lama (kalau masih dipakai) bisa baca
+    if ctx is None:
+        ctx = {}
+    ctx["profile"] = prof
+    ctx["api_keys"] = api_eff
+
+    # Kalau kamu SUDAH punya builder baru:
+    if "_build_base_cfg_from_profiles" in globals():
+        return _build_base_cfg_from_profiles(prof, global_prof)
+
+    # Kalau kamu BELUM bikin builder baru, pakai versi lama (minimal)
+    rd = (prof.get("render_defaults") or {})
+    ch = (prof.get("channel") or {})
+
+    edge_voice = rd.get("edge_voice") or os.getenv("EDGE_TTS_VOICE", "id-ID-ArdiNeural")
+    edge_rate  = rd.get("edge_rate")  or os.getenv("EDGE_TTS_RATE", "+0%")
+
+    base_cfg = {
+        "hook_sub": rd.get("hook_sub", "FAKTA CEPAT"),
+        "hook_subtitles_csv": rd.get("hook_subtitles_csv", ""),
+        "tts_engine": rd.get("tts_engine", "gtts"),
+        "voice_id": rd.get("voice_id", ""),
+        "no_watermark": False,
+        "watermark_handles_csv": str(rd.get("watermark_handles_csv", "") or ""),
+        "watermark_handle": str(rd.get("watermark_handle", "") or ""),
+        "wm_handle": str(rd.get("watermark_handle", "") or ""),
+        "wm_pos": rd.get("watermark_position", "top-right"),
+        "wm_opacity": _to_float_opacity_01(rd.get("watermark_opacity", 0.8)),
+        "edge_voice": str(edge_voice),
+        "edge_rate": str(edge_rate),
+        "edge_voice_pool_csv": "",
+
+        "enable_upload": bool(ch.get("enable_upload", False)),
+        "enable_tg": bool(ch.get("telegram_notif", False)),
+        "auto_hash": bool(ch.get("auto_hashtags", True)),
+        "upload_date": ch.get("default_publish_schedule", "") or "",
+        "use_prime": True,
+    }
+
+    # rev
+    prof_rev = str(prof.get("updated_at", "") or "")
+    if not prof_rev:
+        try:
+            payload = json.dumps({"render_defaults": rd, "channel": ch}, sort_keys=True, ensure_ascii=False)
+            prof_rev = hashlib.md5(payload.encode("utf-8")).hexdigest()
+        except Exception:
+            prof_rev = "rev_fallback"
+
+    return base_cfg, prof_rev
+
+def _find_profiles_json() -> str | None:
+    """
+    Cari data/profiles.json dari portal (biasanya CWD = user-management-portal).
+    """
+    from pathlib import Path
+    candidates = []
+    cwd = Path.cwd().resolve()
+    candidates.append(cwd / "data" / "profiles.json")
+    for p in cwd.parents:
+        candidates.append(p / "data" / "profiles.json")
+
+    # juga coba relatif dari file ini (kalau run dari repo lain)
+    here = Path(__file__).resolve()
+    for p in here.parents:
+        candidates.append(p / "data" / "profiles.json")
+
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    return None
+
+def _load_profiles_json() -> dict:
+    fp = _find_profiles_json()
+    if not fp:
+        return {}
+    try:
+        with open(fp, "r", encoding="utf-8") as f:
+            return json.load(f) or {}
+    except Exception:
+        return {}
+
+def _cp_inject_css():
+    # inject sekali saja (biar tidak numpuk tiap rerun)
+    if st.session_state.get("_cp_css_done"):
+        return
+    st.session_state["_cp_css_done"] = True
+
+    st.markdown("""
+    <style>
+      /* ===== HERO ===== */
+      .cp-hero{
+        display:flex;
+        justify-content:space-between;
+        gap:14px;
+        padding:14px 16px;
+        border-radius:16px;
+        margin: 6px 0 12px 0;
+
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.10);
+        box-shadow: 0 10px 26px rgba(0,0,0,0.18);
+        backdrop-filter: blur(10px);
+      }
+      .cp-hero-left{ min-width: 220px; }
+      .cp-title{ font-size:20px; font-weight:800; letter-spacing:.2px; }
+      .cp-desc{ opacity:.85; margin-top:4px; font-size:12.5px; line-height:1.35; }
+
+      .cp-chips{
+        display:flex;
+        flex-wrap:wrap;
+        gap:8px;
+        justify-content:flex-end;
+        align-items:flex-start;
+      }
+      .cp-chip{
+        font-size:12px;
+        padding:6px 10px;
+        border-radius:999px;
+        background: rgba(255,255,255,0.06);
+        border: 1px solid rgba(255,255,255,0.10);
+        opacity:.92;
+        white-space: nowrap;
+      }
+
+      /* responsive: kalau sempit, chips pindah bawah */
+      @media (max-width: 720px){
+        .cp-hero{ flex-direction:column; }
+        .cp-chips{ justify-content:flex-start; }
+      }
+
+      /* ===== SECTION HEADERS ===== */
+      .cp-subheader{
+        display:flex; align-items:center; gap:10px;
+        font-size:15px; font-weight:800;
+        margin: 10px 0 8px 0;
+        letter-spacing: 0.2px;
+      }
+      .cp-subheader:after{
+        content:"";
+        height:1px;
+        flex:1;
+        background: linear-gradient(90deg, rgba(255,255,255,0.25), rgba(255,255,255,0.05));
+      }
+      .cp-subsection{
+        font-size:13px;
+        font-weight:700;
+        margin: 8px 0 6px 0;
+        opacity: 0.92;
+      }
+
+      /* ===== LOG BOX ===== */
+      .cp-logbox{
+        height: 260px;
+        overflow-y: auto;
+        border-radius: 14px;
+        padding: 12px 14px;
+        margin-top: 8px;
+        margin-bottom: 14px;
+
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.10);
+        box-shadow: 0 10px 24px rgba(0,0,0,0.18);
+        backdrop-filter: blur(10px);
+
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+        font-size: 11.5px;
+        line-height: 1.5;
+        color: rgba(255,255,255,0.90);
+      }
+      .cp-logbox::-webkit-scrollbar{ width: 10px; }
+      .cp-logbox::-webkit-scrollbar-thumb{
+        background: rgba(255,255,255,0.18);
+        border-radius: 999px;
+        border: 2px solid transparent;
+        background-clip: content-box;
+      }
+
+      /* ===== st.status chevron hide ===== */
+      div[data-testid="stStatusWidget"] button { display: none !important; }
+
+      /* ===== LIGHT MODE ===== */
+      @media (prefers-color-scheme: light){
+        .cp-hero{
+          background: rgba(0,0,0,0.03);
+          border: 1px solid rgba(0,0,0,0.10);
+          box-shadow: 0 10px 22px rgba(0,0,0,0.08);
+        }
+        .cp-logbox{
+          background: rgba(0,0,0,0.03);
+          border: 1px solid rgba(0,0,0,0.10);
+          color: rgba(0,0,0,0.88);
+        }
+        .cp-logbox::-webkit-scrollbar-thumb{ background: rgba(0,0,0,0.18); }
+        .cp-subheader:after{
+          background: linear-gradient(90deg, rgba(0,0,0,0.22), rgba(0,0,0,0.05));
+        }
+      }
+    </style>
+    """, unsafe_allow_html=True)
+
+def render(ctx):
+    prof, global_prof, api_eff = _effective_profile_and_keys(ctx)
+    _cp_inject_css()
+
+    if ctx is None:
+        ctx = {}
+    ctx["profile"] = prof
+    ctx["api_keys"] = api_eff
+
+    base_cfg, prof_rev = _build_base_cfg_from_profiles(prof, global_prof)
+
+    # edge pool STRICT dari __global__.render_defaults
+    g_rd = _global_render_defaults(ctx)
+    #g_rd = (global_prof.get("render_defaults") or {}) if isinstance(global_prof, dict) else {}
+    base_cfg["edge_voice_pool_csv"] = str(g_rd.get("edge_voice_pool_csv", "") or "")
+
+    # elevenlabs STRICT dari user api key (yang sudah decrypted)
+    eleven_key = str(api_eff.get("elevenlabs", "") or "").strip()
+    base_cfg["has_elevenlabs"] = bool(eleven_key) and (not eleven_key.startswith("enc:"))
+
+    _sync_cp_session_defaults(base_cfg, prof_rev)
+
+    # 3) ElevenLabs availability: STRICT per-user (jangan ambil dari ENV)
+    eleven_key = str(api_eff.get("elevenlabs", "") or "").strip()
+    base_cfg["has_elevenlabs"] = bool(eleven_key)
+
+    # kalau profile minta elevenlabs tapi key kosong → drop opsi (fallback)
+    if base_cfg.get("tts_engine") == "elevenlabs" and not base_cfg["has_elevenlabs"]:
+        base_cfg["tts_engine"] = "gtts"
+
+    # 4) Sync default widget state (agar CP ikut My Profile saat profile berubah)
+    _sync_cp_session_defaults(base_cfg, prof_rev)
+
+    if "cp_edge_voice" not in st.session_state:
+        st.session_state["cp_edge_voice"] = str(base_cfg.get("edge_voice", os.getenv("EDGE_TTS_VOICE", "id-ID-ArdiNeural")) or "id-ID-ArdiNeural")
+    if "cp_edge_rate" not in st.session_state:
+        st.session_state["cp_edge_rate"]  = str(base_cfg.get("edge_rate", "+0%") or "+0%")
+    config_sidebar = base_cfg
+
+    # 5) Resolve main.py + workspace root
+    repo_root = _resolve_repo_root(ctx)
+    main_py = (repo_root / "main.py").resolve()
+
+    ws_root = _ws_root(ctx)  # ctx['paths']['user_root'] kalau ada, fallback
+    # kalau standalone dan REPO_ROOT global beda dengan repo_root resolver, pakai repo_root
+    if ws_root == REPO_ROOT and repo_root != REPO_ROOT:
+        ws_root = repo_root
+
+    if not main_py.exists():
+        st.error(f"main.py tidak ditemukan: {main_py}")
+        return
+
+    # ===== help cache (WAJIB: sebelum dipakai _supports_flag) =====
+    help_text = st.session_state.get("cp_main_help_cache", "")
+    if not isinstance(help_text, str) or not help_text.strip():
+        help_text = _get_main_help_text(main_py)
+        st.session_state["cp_main_help_cache"] = help_text
+
+    st.markdown(f"""
+    <div class="cp-hero">
+      <div class="cp-hero-left">
+        <div class="cp-title">🧩 Control Panel</div>
+        <div class="cp-desc">Generate → Render → Upload (workspace user aktif).</div>
+      </div>
+
+      <div class="cp-chips">
+        <span class="cp-chip">Workspace: <b>{html.escape(Path(ws_root).name)}</b></span>
+        <span class="cp-chip">Contents: <b>contents/</b></span>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ========= STATE =========
+    if "cp_running" not in st.session_state:
+        st.session_state.cp_running = False
+    if "cp_log_path" not in st.session_state:
+        st.session_state.cp_log_path = ""
+    if "cp_progress" not in st.session_state:
+        st.session_state.cp_progress = 0.0
+    if "cp_start_job" not in st.session_state:
+        st.session_state.cp_start_job = False
+
+    cp_config = {}
+
+    _cp_subheader("📝 Content Selector")
+
+    contents_base = Path(ws_root) / "contents"
+    topics = sorted([p.name for p in contents_base.iterdir() if p.is_dir()]) if contents_base.exists() else []
+
+    if not topics:
+        st.warning("Belum ada folder di 'contents/'. Buat folder baru dulu.")
+        topics = ["automotif"]
+
+    selected_topic = st.selectbox("Pilih Topik", topics, key="cp_topic")
+
+    _cp_subheader("🎣 Hook Subtitle")
+    hook_list = _parse_list(str(base_cfg.get("hook_subtitles_csv", "") or ""))
+    cur_hook = str(st.session_state.get("cp_hook_sub") or base_cfg.get("hook_sub", "FAKTA CEPAT"))
+
+    if hook_list:
+        if cur_hook not in hook_list:
+            hook_list = [cur_hook] + hook_list
+        st.selectbox("Hook", hook_list, index=hook_list.index(cur_hook), key="cp_hook_sub")
+    else:
+        st.text_input("Hook", key="cp_hook_sub", disabled=True)
+        st.caption("Hook list belum diset di profile (hook_subtitles_csv).")
+
+    MODE_SINGLE = "Single Video"
+    MODE_BATCH = "Batch Processing"
+    MODE_GENERATE = "Generate Content Only"  # legacy (jaga-jaga session_state lama)
+
+    # migrate state lama biar radio gak error
+    if st.session_state.get("cp_mode") == MODE_GENERATE:
+        st.session_state["cp_mode"] = MODE_SINGLE
+
+    mode = st.radio(
+        "Mode Operasi",
+        [MODE_SINGLE, MODE_BATCH],
+        horizontal=True,
+        key="cp_mode"
+    )
+
+    st.caption("📝 Generate .txt dari JSON sudah dipindahkan ke tab **Templates**.")
+
+    topic_dir = Path(ws_root) / "contents" / selected_topic
+    script_count = len(list(topic_dir.rglob("*.txt"))) if topic_dir.exists() else 0
+    tpl_count = len(list((Path(ws_root)/"templates").glob("*.json"))) if (Path(ws_root)/"templates").exists() else 0
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Topic", selected_topic, f"{script_count} scripts")
+    m2.metric("Mode", mode)
+    m3.metric("Templates", str(tpl_count))
+    m4.metric("TTS", st.session_state.get("cp_tts_engine", "-"))
+
+    ws_root = _ws_root(ctx)
+
+    # base cmd
+    cmd_args = [sys.executable, str(main_py)]
+
+    # legacy: mode short untuk render (single/batch)
+    if mode in (MODE_SINGLE, MODE_BATCH):
+        cmd_args += ["--mode", "short"]
+
+    cmd_args += ["--topic", selected_topic]
+
+    single_selected_abs = ""  # dipakai untuk disable RUN kalau belum pilih file (mode single)
+
+    if mode == MODE_SINGLE:
+        # folder contents di workspace user
+        contents_dir = Path(ws_root) / "contents" / selected_topic
+
+        # scan recursive, jadi auto_0/*.txt juga kebaca
+        txt_paths = []
+        if contents_dir.exists():
+            txt_paths = sorted(contents_dir.rglob("*.txt"), key=lambda p: str(p).lower())
+
+        if not txt_paths:
+            st.warning(f"Tidak ada .txt ditemukan di: {contents_dir} (termasuk subfolder).")
+            selected_rel = ""
+        else:
+            # tampilkan path relatif terhadap contents_dir biar enak (mis: auto_0/auto_001.txt)
+            options = [str(p.relative_to(contents_dir)) for p in txt_paths]
+            selected_rel = st.selectbox("Pilih File .txt", options, key="single_sel")
+
+        if selected_rel:
+            abs_path = (contents_dir / selected_rel).resolve()  # ABSOLUTE untuk legacy CLI
+            single_selected_abs = str(abs_path)
+            cmd_args += ["--file", single_selected_abs]
+
+            # preview baca pakai abs_path
+            try:
+                with open(abs_path, "r", encoding="utf-8") as f:
+                    content_text = f.read()
+            except UnicodeDecodeError:
+                with open(abs_path, "r", encoding="latin-1", errors="replace") as f:
+                    content_text = f.read()
+            except Exception as e:
+                content_text = f"[ERROR] Gagal membaca file: {e}"
+
+            with st.expander("👀 Preview isi konten", expanded=False):
+                st.text_area(
+                    "Preview",
+                    value=content_text,
+                    height=300,
+                    key="single_content_preview",
+                    disabled=True,
+                )
+
+    elif mode == MODE_BATCH:
+        st.info("Render banyak video sekaligus (Otomatis).")
+        limit = st.number_input("Limit Video", 1, 100, 5, key="cp_limit")
+        shuffle = st.checkbox("Acak Urutan", True, key="cp_shuffle")
+        skip_exist = st.checkbox("Skip yg sudah ada", True, key="cp_skip")
+
+        cmd_args.append("--batch")
+        cmd_args += ["--limit", str(limit)]
+        if shuffle:
+            cmd_args.append("--shuffle")
+        if skip_exist:
+            cmd_args.append("--skip-existing")
+
+    _cp_subheader("✨ Visual & Background")
+
+    cinematic = st.checkbox("✨ Cinematic Look (Overlay)", value=False, key="cp_cine")
+    if cinematic:
+        st.warning("⚠️ Perhatian: Opsi ini akan membuat proses render berjalan LEBIH LAMA dari biasanya.")
+
+    # ===== Detect supported flags from main.py (selalu ada, tidak tergantung cinematic) =====
+    help_text_ui = st.session_state.get("cp_main_help_cache")
+    if not isinstance(help_text_ui, str) or not help_text_ui.strip():
+        help_text_ui = _get_main_help_text(main_py)
+        st.session_state["cp_main_help_cache"] = help_text_ui
+
+    _cp_subheader("🎛️ Render Options (TTS / Watermark / BGM / Avatar)")
+
+    with st.expander("🗣️ TTS (Simple)", expanded=False):
+        # kalau user tidak punya key, paksa engine bukan elevenlabs
+        if (not bool(base_cfg.get("has_elevenlabs"))) and st.session_state.get("cp_tts_engine_override") == "elevenlabs":
+            st.session_state["cp_tts_engine_override"] = "gtts"
+
+        # list engine: elevenlabs hanya kalau user punya key
+        tts_opts = ["gtts", "edge"]
+        if bool(base_cfg.get("has_elevenlabs")):
+            tts_opts = ["elevenlabs"] + tts_opts
+
+        # default engine aktif dari profile user (base_cfg tts_engine)
+        default_eng = str(st.session_state.get("cp_tts_engine_override") or base_cfg.get("tts_engine") or "gtts")
+        if default_eng == "edge-tts":
+            default_eng = "edge"
+        if default_eng not in tts_opts:
+            default_eng = tts_opts[0]
+            st.session_state["cp_tts_engine_override"] = default_eng
+
+        if "cp_tts_on" not in st.session_state:
+            st.session_state["cp_tts_on"] = True
+
+        r1, r2 = st.columns([1, 1])
+        with r1:
+            st.toggle("TTS", key="cp_tts_on")
+        with r2:
+            st.selectbox("Engine", tts_opts, index=tts_opts.index(default_eng), key="cp_tts_engine_override")
+
+        eng = st.session_state.get("cp_tts_engine_override", "gtts")
+
+        # ========== EDGE ==========
+        if eng == "edge":
+            # LIST dari GLOBAL
+            edge_pool = _parse_list(str(base_cfg.get("edge_voice_pool_csv", "") or ""))
+            if not edge_pool:
+                edge_pool = ["id-ID-ArdiNeural", "id-ID-GadisNeural"]
+
+            # AKTIF dari USER
+            user_default = str(base_cfg.get("edge_voice") or "").strip() or edge_pool[0]
+            cur = str(st.session_state.get("cp_edge_voice_override") or user_default)
+            if cur not in edge_pool:
+                edge_pool = [cur] + edge_pool
+
+            c1, c2 = st.columns([2, 1])
+            with c1:
+                st.selectbox(
+                    "Voice",
+                    edge_pool,
+                    index=edge_pool.index(cur),
+                    key="cp_edge_voice_override",
+                    disabled=not bool(st.session_state.get("cp_tts_on", True)),
+                )
+            with c2:
+                if "cp_edge_rate_override" not in st.session_state:
+                    st.session_state["cp_edge_rate_override"] = str(base_cfg.get("edge_rate") or "+0%")
+
+                st.text_input(
+                    "Rate",
+                    key="cp_edge_rate_override",
+                    disabled=not bool(st.session_state.get("cp_tts_on", True)),
+                )
+
+        # ========== ELEVENLABS ==========
+        elif eng == "elevenlabs":
+            # LIST pool: prioritas GLOBAL, fallback USER
+            pool_global = _parse_list(str(base_cfg.get("eleven_voice_pool_csv", "") or ""))
+            pool_user = _parse_list(str(base_cfg.get("voice_id", "") or ""))
+            pool = []
+            seen = set()
+            for x in (pool_global + pool_user):
+                if x and x not in seen:
+                    seen.add(x)
+                    pool.append(x)
+
+            # AKTIF dari USER: voice_id pertama user (kalau ada)
+            default_voice = (pool_user[0] if pool_user else (pool[0] if pool else ""))
+            cur_voice = str(st.session_state.get("cp_eleven_voice_override") or default_voice).strip()
+            if cur_voice and cur_voice not in pool:
+                pool = [cur_voice] + pool
+
+            c3, c4 = st.columns([1, 1])
+            with c3:
+                st.selectbox(
+                    "Mode",
+                    ["fixed", "random_video", "random_line"],
+                    index=["fixed","random_video","random_line"].index(str(st.session_state.get("cp_eleven_mode","fixed"))),
+                    key="cp_eleven_mode",
+                    disabled=not bool(st.session_state.get("cp_tts_on", True)),
+                )
+            with c4:
+                st.text_input(
+                    "Seed",
+                    value=str(st.session_state.get("cp_tts_seed","") or ""),
+                    key="cp_tts_seed",
+                    disabled=not bool(st.session_state.get("cp_tts_on", True)),
+                )
+
+            # ringkas: Voice dropdown kalau pool ada, kalau tidak pakai input
+            if pool:
+                st.selectbox(
+                    "Voice ID",
+                    pool,
+                    index=pool.index(cur_voice) if cur_voice in pool else 0,
+                    key="cp_eleven_voice_override",
+                    disabled=not bool(st.session_state.get("cp_tts_on", True)),
+                )
+                st.caption("Pool: global → fallback user")
+            else:
+                st.text_input(
+                    "Voice ID",
+                    value=str(st.session_state.get("cp_eleven_voice_override","") or ""),
+                    key="cp_eleven_voice_override",
+                    disabled=not bool(st.session_state.get("cp_tts_on", True)),
+                )
+                st.caption("Isi voice_id di profile user (render_defaults.voice_id) atau global (render_defaults.eleven_voice_pool_csv).")
+
+        else:
+            st.caption("gTTS: tidak perlu setting voice.")
+
+    with st.expander("🏷️ Watermark", expanded=False):
+        # defaults aman (tanpa value= biar gak konflik session_state)
+        st.session_state.setdefault("cp_wm_on", True)
+
+        wm_csv  = str(base_cfg.get("watermark_handles_csv", "") or "")
+        wm_list = _parse_list(wm_csv)
+
+        # default handle dari profile
+        wm_default = str(
+            base_cfg.get("watermark_handle")
+            or base_cfg.get("wm_handle")
+            or ""
+        ).strip()
+        if (not wm_default) and wm_list:
+            wm_default = wm_list[0]
+
+        st.session_state.setdefault("cp_wm_handle_override", wm_default)
+        st.session_state.setdefault("cp_wm_pos_override", str(base_cfg.get("wm_pos", "top-right") or "top-right"))
+        st.session_state.setdefault("cp_wm_op_override", int(_to_int_opacity_255(base_cfg.get("wm_opacity", 0.8))))
+
+        # 1) Enable
+        st.toggle("Enable", key="cp_wm_on")
+
+        # 2) Handle: dropdown kalau list ada
+        if wm_list:
+            cur = str(st.session_state.get("cp_wm_handle_override") or "").strip()
+            if cur and cur not in wm_list:
+                wm_list = [cur] + wm_list  # jaga-jaga biar value valid
+            st.selectbox("Handle", wm_list, key="cp_wm_handle_override", disabled=not st.session_state["cp_wm_on"])
+        else:
+            st.text_input("Handle", key="cp_wm_handle_override", disabled=not st.session_state["cp_wm_on"])
+            st.caption("Set `render_defaults.watermark_handles_csv` di profile untuk dropdown.")
+
+        # 3) Position
+        pos_opts = ["top-right", "top-left", "bottom-right", "bottom-left"]
+        if st.session_state["cp_wm_pos_override"] not in pos_opts:
+            st.session_state["cp_wm_pos_override"] = "top-right"
+        st.selectbox("Position", pos_opts, key="cp_wm_pos_override", disabled=not st.session_state["cp_wm_on"])
+
+        # 4) Opacity
+        st.slider("Opacity", 0, 255, key="cp_wm_op_override", disabled=not st.session_state["cp_wm_on"])
+
+    with st.expander("🎵 BGM (Postprocess)", expanded=False):
+        st.toggle("Enable BGM", value=bool(st.session_state.get("cp_bgm_on", False)), key="cp_bgm_on")
+        st.slider("BGM volume", 0.0, 1.0, value=float(st.session_state.get("cp_bgm_vol", 0.20)), step=0.05, key="cp_bgm_vol", disabled=not st.session_state.get("cp_bgm_on", False))
+
+        repo_root_for_assets = _resolve_repo_root(ctx)
+        bgm_files = _list_bgm_files_repo(repo_root_for_assets)
+        if bgm_files:
+            st.selectbox("BGM file", ["(auto/latest)"] + bgm_files, index=0, key="cp_bgm_file", disabled=not st.session_state.get("cp_bgm_on", False))
+        else:
+            st.info("Tidak ada file BGM di assets/bgm.")
+
+    with st.expander("🧑 Avatar (Postprocess)", expanded=False):
+        st.toggle("Enable Avatar", value=bool(st.session_state.get("cp_avatar_on", False)), key="cp_avatar_on")
+        repo_root_for_assets = _resolve_repo_root(ctx)
+        avatar_ids = _list_avatar_ids_repo(repo_root_for_assets)
+        if not avatar_ids:
+            avatar_ids = ["cat_v1"]
+            st.warning("assets/avatars kosong/tidak ada. Fallback cat_v1.")
+
+        cur_avatar = st.session_state.get("cp_avatar_id", avatar_ids[0])
+        if cur_avatar not in avatar_ids:
+            cur_avatar = avatar_ids[0]
+
+        st.selectbox("Avatar ID", avatar_ids, index=avatar_ids.index(cur_avatar), key="cp_avatar_id", disabled=not st.session_state.get("cp_avatar_on", False))
+        st.slider("Avatar scale", 0.10, 0.35, value=float(st.session_state.get("cp_avatar_scale", 0.20)), step=0.01, key="cp_avatar_scale", disabled=not st.session_state.get("cp_avatar_on", False))
+
+    refresh_bg = st.checkbox("🔄 Force Refresh Backgrounds", value=False, key="cp_refreshbg")
+
+    if cinematic:
+        cmd_args.append("--cinematic")
+    if refresh_bg:
+        cmd_args.append("--refresh-bg")
+
+    # ======================================================
+    # Append CLI args (SHORTS) — pakai OVERRIDE UI
+    # ======================================================
+    if mode in (MODE_SINGLE, MODE_BATCH):
+
+        # Hook subtitle (main.py punya flag ini)
+        hook_sub = str(st.session_state.get("cp_hook_sub") or base_cfg.get("hook_sub", "FAKTA CEPAT")).strip()
+        cmd_args += ["--hook-subtitle", hook_sub]
+
+        # Watermark override
+        if bool(st.session_state.get("cp_wm_on", True)) is False:
+            cmd_args += ["--no-watermark"]
+        else:
+            wm_handle = str(st.session_state.get("cp_wm_handle_override", "") or "").strip()
+            wm_pos = str(st.session_state.get("cp_wm_pos_override", "top-right") or "top-right").strip()
+            wm_op = int(st.session_state.get("cp_wm_op_override", 120))
+            cmd_args += ["--handle", wm_handle, "--watermark-opacity", str(wm_op), "--watermark-position", wm_pos]
+
+        # TTS override (main.py punya --tts + edge/eleven args)
+        tts_engine = str(st.session_state.get("cp_tts_engine_override") or config.get("tts_engine","gtts") or "gtts").strip()
+        if tts_engine == "edge-tts":
+            tts_engine = "edge"
+
+        cmd_args += ["--tts", tts_engine]
+
+        # edge voice/rate (kalau edge) — LIST dari global, AKTIF dari user (override)
+        if tts_engine == "edge":
+            ev = str(
+                st.session_state.get("cp_edge_voice_override")
+                or st.session_state.get("cp_edge_voice")
+                or config.get("edge_voice")
+                or ""
+            ).strip()
+
+            er = str(
+                st.session_state.get("cp_edge_rate_override")
+                or st.session_state.get("cp_edge_rate")
+                or config.get("edge_rate")
+                or "+0%"
+            ).strip()
+
+            if ev and _supports_flag(help_text, "--edge-voice"):
+                cmd_args += ["--edge-voice", ev]
+            if er and _supports_flag(help_text, "--edge-rate"):
+                cmd_args += ["--edge-rate", er]
+
+        if tts_engine == "elevenlabs":
+            v = str(st.session_state.get("cp_eleven_voice_override","") or "").strip()
+            if v and _supports_flag(help_text, "--eleven-voice"):
+                cmd_args += ["--eleven-voice", v]
+
+            mode_voice = str(st.session_state.get("cp_eleven_mode","fixed") or "fixed").strip()
+            if _supports_flag(help_text, "--eleven-voice-mode"):
+                cmd_args += ["--eleven-voice-mode", mode_voice]
+
+            pool = str(st.session_state.get("cp_eleven_pool","") or "").strip()
+            if pool and _supports_flag(help_text, "--eleven-voice-pool"):
+                cmd_args += ["--eleven-voice-pool", pool.replace("\n", ",")]
+
+            seed = str(st.session_state.get("cp_tts_seed","") or "").strip()
+            if seed and _supports_flag(help_text, "--seed"):
+                cmd_args += ["--seed", seed]
+
+        # NOTE:
+        # BGM & AVATAR TIDAK ADA flag di main.py shorts.
+        # Jadi nanti ditangani POSTPROCESS setelah render (lihat bagian C).
+
+    _cp_subheader("🚀 Eksekusi Program")
+
+    # ===== Buttons RUN/STOP (di control panel) =====
+    b1, b2, b3 = st.columns([2, 1, 2])
+
+    pid = helpers.get_pid()
+
+    with b1:
+        run_btn = st.button(
+            "🚀 JALANKAN PROSES",
+            use_container_width=True,
+            disabled=st.session_state.cp_running or (mode == MODE_SINGLE and not single_selected_abs),
+        )
+
+    with b2:
+        stop_btn = st.button("🛑 HENTIKAN", type="primary", use_container_width=True, disabled=not st.session_state.cp_running)
+
+    # ===== ACTION RUN =====
+    if run_btn:
+        helpers.clear_pid()
+
+        log_path = helpers.make_log_path("main")
+        st.session_state.cp_log_path = log_path
+
+        st.session_state.cp_start_job = True
+        st.session_state.cp_running = True
+        st.session_state.cp_progress = 0.0
+
+        # reset buffer log UI (optional)
+        st.session_state.cp_logs = []
+
+        os.makedirs(os.path.dirname(log_path), exist_ok=True)
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(f"control_panel loaded from: {__file__}\n")
+            f.write(f"MAIN_PY (resolved): {main_py}\n")
+            f.write(f"CWD (ws_root): {ws_root}\n")
+            f.write(f"=== JOB START {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+            f.write("CMD: " + shlex.join(cmd_args) + "\n")
+            f.write("===========================================\n")
+
+
+        st.toast("🚀 Proses dimulai.", icon="🚀")
+        st.rerun()
+
+    # ===== ACTION STOP =====
+    if stop_btn:
+        helpers.kill_running_process()
+        st.session_state.cp_running = False
+        st.session_state.cp_start_job = False
+        st.session_state.cp_progress = 0.0
+        st.toast("🛑 Proses dihentikan.", icon="🛑")
+        st.rerun()
+
+    # ===== UI HOLDER (progress + logbox) =====
+    status_text = st.status("✅ Idle", expanded=False)
+    p_bar = st.progress(st.session_state.cp_progress)
+    pct = int(round(st.session_state.cp_progress * 100))
+    #st.caption(f"⏳ Progress: **{pct}%**")
+
+    log_placeholder = st.empty()
+
+    cL, cR = st.columns([1, 1])
+    with cL:
+        st.caption("📜 Live Log")
+    with cR:
+        lp = st.session_state.get("cp_log_path", "")
+        if lp and os.path.exists(lp):
+            with open(lp, "rb") as f:
+                st.download_button(
+                    "⬇️ Download Log",
+                    f,
+                    file_name=os.path.basename(lp),
+                    mime="text/plain",
+                    use_container_width=True
+                )
+
+    # ===== REALTIME RUNNER (SAMA STYLE LONG VIDEO) =====
+    if st.session_state.cp_running and st.session_state.cp_start_job:
+        st.session_state.cp_start_job = False
+
+        log_path = st.session_state.get("cp_log_path", "")
+        logs = st.session_state.get("cp_logs", [])
+        MAX_LINES = 200
+        last_log_line = None
+
+        status_text.update(label="🚀 Starting...", state="running", expanded=False)
+
+        api = (ctx or {}).get("api_keys", {}) or {}
+        env = os.environ.copy()
+
+        # sesuaikan nama env var dengan yang main.py baca.
+        # saya set beberapa alias umum supaya aman.
+        if api.get("elevenlabs"):
+            env["ELEVENLABS_API_KEY"] = api["elevenlabs"]
+
+        if api.get("gemini"):
+            env["GEMINI_API_KEY"] = api["gemini"]
+            env["GOOGLE_API_KEY"] = api["gemini"]  # banyak library Gemini pakai ini
+
+        if api.get("pexels"):
+            env["PEXELS_API_KEY"] = api["pexels"]
+
+        if api.get("pixabay"):
+            env["PIXABAY_API_KEY"] = api["pixabay"]
+
+        assets_root = _resolve_repo_root(ctx)
+        env["YTA_BGM_DIR"] = str((assets_root / "assets" / "bgm").resolve())
+        env["YTA_AVATARS_DIR"] = str((assets_root / "assets" / "avatars").resolve())
+
+        proc = _start_job_pipe(cmd_args, cwd=str(ws_root), env=env)
+        helpers.save_pid(proc.pid)
+
+        # buka file log untuk append realtime
+        log_f = open(log_path, "a", encoding="utf-8", buffering=1) if log_path else None
+
+        try:
+            while True:
+                line = proc.stdout.readline() if proc.stdout else ""
+
+                if not line and proc.poll() is not None:
+                    break
+                if not line:
+                    continue
+
+                parts = line.replace("\r", "\n").split("\n")
+                for p in parts:
+                    clean_l = p.strip()
+                    if not clean_l:
+                        continue
+
+                    # anti dupe consecutive
+                    if clean_l == last_log_line:
+                        continue
+                    last_log_line = clean_l
+
+                    # (opsional) skip spam moviepy
+                    if "moviepy" in clean_l.lower():
+                        continue
+
+                    # progress detect (HANYA dari % / frame_index)
+                    if "%" in clean_l or "frame_index" in clean_l:
+                        m = re.search(r"(\d{1,3})\s*%", clean_l)
+                        if m:
+                            val = int(m.group(1))
+                            val = max(0, min(100, val))
+                            prog = val / 100.0
+
+                            # simpan supaya tidak drop
+                            if prog > st.session_state.cp_progress:
+                                st.session_state.cp_progress = prog
+
+                            p_bar.progress(min(max(val/100.0, 0.0), 1.0))
+                            status_text.update(label=f"⏳ Rendering Video... {val}%", state="running")
+                        continue
+
+                    # tulis ke file log
+                    if log_f:
+                        log_f.write(clean_l + "\n")
+
+                    # push ke logbox UI
+                    logs.append(clean_l)
+                    if len(logs) > MAX_LINES:
+                        logs = logs[-MAX_LINES:]
+
+                    st.session_state.cp_logs = logs
+
+                    safe_lines = [html.escape(x) for x in logs]
+                    log_placeholder.markdown(
+                        f'<div class="cp-logbox">{"<br>".join(safe_lines)}</div>',
+                        unsafe_allow_html=True
+                    )
+
+            # end loop
+            rc = proc.returncode
+
+            helpers.clear_pid()
+
+            # ===== POSTPROCESS (Shorts) =====
+            if rc == 0:
+                try:
+                    latest = _find_latest_video(Path(ws_root), selected_topic)
+                    if latest and latest.exists():
+                        outp = latest
+
+                        repo_assets = _resolve_repo_root(ctx)
+                        bgm_dir = (repo_assets / "assets" / "bgm").resolve()
+                        avatars_dir = (repo_assets / "assets" / "avatars").resolve()
+
+                        # 1) Kalau TTS OFF => mute audio (karena main.py shorts tidak punya --no-tts)
+                        if bool(st.session_state.get("cp_tts_on", True)) is False:
+                            outp2 = _mute_audio_ffmpeg(outp)
+                            if outp2 != outp:
+                                outp = outp2
+                                logs.append(f"[POST] muted -> {outp.name}")
+
+                        # 2) BGM mix
+                        if bool(st.session_state.get("cp_bgm_on", False)):
+                            pick = str(st.session_state.get("cp_bgm_file", "(auto/latest)"))
+                            bgm_file = None
+                            if pick and pick != "(auto/latest)":
+                                bgm_file = (bgm_dir / pick).resolve()
+
+                            outp2 = _mix_bgm_ffmpeg(
+                                outp,
+                                bgm_file=bgm_file,
+                                bgm_dir=bgm_dir,
+                                vol=float(st.session_state.get("cp_bgm_vol", 0.20)),
+                            )
+                            if outp2 != outp:
+                                outp = outp2
+                                logs.append(f"[POST] bgm -> {outp.name}")
+
+                        # 3) Avatar lipsync
+                        if bool(st.session_state.get("cp_avatar_on", False)):
+                            av_id = str(st.session_state.get("cp_avatar_id", "cat_v1"))
+                            av_sc = float(st.session_state.get("cp_avatar_scale", 0.20))
+                            outp2 = _apply_avatar_postprocess(outp, avatars_dir=avatars_dir, avatar_id=av_id, scale=av_sc)
+                            if outp2 != outp:
+                                outp = outp2
+                                logs.append(f"[POST] avatar -> {outp.name}")
+
+                        # update log ui
+                        st.session_state.cp_logs = logs
+
+                        # juga tulis ke log file kalau ada
+                        if log_f:
+                            log_f.write("\n".join([x for x in logs[-8:]]) + "\n")
+                            log_f.flush()
+
+                except Exception as e:
+                    logs.append(f"[POST][WARN] {type(e).__name__}: {e}")
+                    st.session_state.cp_logs = logs
+                    if log_f:
+                        log_f.write(f"[POST][WARN] {type(e).__name__}: {e}\n")
+                        log_f.flush()
+
+            if rc == 0:
+                st.session_state.cp_progress = 1.0
+                p_bar.progress(1.0)
+                status_text.update(label="✅ Selesai", state="complete", expanded=False)
+                st.toast("✅ Proses selesai.", icon="✅")
+            elif rc == -15:
+                status_text.update(label="🛑 Dihentikan user", state="error")
+            else:
+                status_text.update(label=f"❌ Error (code={rc})", state="error")
+
+        finally:
+            st.session_state.cp_running = False
+            if log_f:
+                try:
+                    log_f.write(f"=== JOB END {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+                    log_f.close()
+                except:
+                    pass
+
+        # refresh UI setelah selesai supaya preview update
+        st.rerun()
+
+    # ===== Jika belum ada log UI =====
+    if not st.session_state.get("cp_logs"):
+        log_placeholder.info("Belum ada log.")
+
+    # ===== Preview =====
+    _cp_subheader("📺 Preview Hasil Terakhir")
+
+    latest_video = _find_latest_video(Path(ws_root), selected_topic)
+    if latest_video:
+        col_vid1, col_vid2 = st.columns([1, 1.5])
+
+        with col_vid1:
+            st.video(str(latest_video))
+
+        with col_vid2:
+            st.markdown("### 📄 Metadata")
+            st.write(f"**Filename:** `{latest_video.name}`")
+            st.write(f"**Size:** `{os.path.getsize(latest_video) / (1024*1024):.2f} MB`")
+            st.write(f"**Path:** `{latest_video}`")
+            st.divider()
+
+            btn_col1, btn_col2 = st.columns(2)
+            with btn_col1:
+                with open(latest_video, "rb") as file:
+                    st.download_button(
+                        label="⬇️ Download",
+                        data=file,
+                        file_name=latest_video.name,
+                        mime="video/mp4",
+                        use_container_width=True
+                    )
+
+            with btn_col2:
+                if st.button("🗑️ Hapus Video", key="del_latest_preview", use_container_width=True):
+                    try:
+                        os.remove(latest_video)
+                        st.toast(f"Video '{latest_video.name}' berhasil dihapus!", icon="🗑️")
+                        time.sleep(0.5)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Gagal menghapus: {e}")
+    else:
+        st.info("Belum ada video yang ditemukan di folder output topik ini.")

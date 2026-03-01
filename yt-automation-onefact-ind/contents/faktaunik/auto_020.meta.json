@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Semut bisa angkat beban berkali-kali lipat",
+  "hook": "Makhluk kecil tapi super kuat!",
+  "cta": "Semut di rumah kamu tim kerja keras juga?",
+  "query": "",
+  "bg": {
+    "query": "ant carrying leaf macro realistic photo",
+    "variants": [
+      "ants teamwork macro",
+      "ant close up"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

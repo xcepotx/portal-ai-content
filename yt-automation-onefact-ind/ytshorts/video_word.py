@@ -1,0 +1,2535 @@
+import os
+import random
+import subprocess
+import re
+import numpy as np
+import hashlib
+import math
+import json
+
+from pathlib import Path
+from typing import List, Tuple, Optional
+from moviepy import VideoFileClip, AudioClip, VideoClip
+from PIL import Image, ImageDraw, ImageFont
+from .config import FPS
+from .cta_overlay import render_cta_overlay
+from .hook_overlay import render_hook_overlay
+from .word_overlay import render_word_overlay
+from .watermark import render_watermark
+from ytshorts.hook_overlay_impact import render_impact_hook_overlay
+from ytshorts.curiosity_overlay import render_curiosity_overlay
+from moviepy.video.VideoClip import ColorClip
+from moviepy.audio.AudioClip import AudioClip
+
+from moviepy import (
+    AudioFileClip,
+    CompositeAudioClip,
+    CompositeVideoClip,
+    ImageClip, AudioClip,
+    concatenate_audioclips,
+    concatenate_videoclips,
+    vfx,
+)
+
+# ====== SETTINGS ======
+MANUAL_BG_CACHE_DIR = "assets/manual_bg_cache"
+MANUAL_STYLES = ["breathe", "dolly_left", "dolly_right", "dolly_up", "diag_up_right", "push_in"]
+
+# ====== GLOBAL PATHS (BGM shared) ======
+REPO_ROOT = Path(__file__).resolve().parents[1]  # .../yt-automation-onefact-ind
+DEFAULT_BGM_DIR = (REPO_ROOT / "assets" / "bgm").resolve()
+
+
+def _pad_audio_to_duration(aud, target_dur: float, *, min_tail: float = 0.25):
+    """
+    Pad audio dengan silence supaya bisa dipanggil sampai target_dur tanpa OSError.
+    min_tail memberi buffer kecil untuk rounding MP3.
+    """
+    target = float(target_dur or 0.0)
+    if target <= 0:
+        return aud
+
+    d = float(getattr(aud, "duration", 0.0) or 0.0)
+    if d <= 0:
+        return aud
+
+    # kalau audio lebih panjang -> trim aman
+    if d >= target + 1e-3:
+        return _sub_audio(aud, 0, target)
+
+    # audio lebih pendek -> tambah silence sampai target
+    tail = (target - d) + float(min_tail)
+    silence = AudioClip(lambda t: 0.0, duration=tail)
+    try:
+        silence = silence.set_fps(int(getattr(aud, "fps", 44100) or 44100))
+    except Exception:
+        pass
+
+    out = concatenate_audioclips([aud, silence])
+
+    # set duration EXACT target (biar moviepy gak request lewat target)
+    try:
+        out = out.with_duration(target)
+    except Exception:
+        out = out.set_duration(target)
+
+    return out
+
+def _ffprobe_duration_sec(p: str) -> float:
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=nw=1:nk=1", str(p)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=6
+        )
+        s = (r.stdout or "").strip()
+        return float(s) if s else 0.0
+    except Exception:
+        return 0.0
+
+def _pad_audio_ffmpeg(inp: str, pad_sec: float = 0.8) -> str:
+    """
+    Buat file audio baru yang dipanjangin sedikit (silence) supaya MoviePy tidak akses lewat durasi.
+    Return path audio padded (atau original kalau gagal).
+    """
+    try:
+        inp_p = Path(inp).resolve()
+        if (not inp_p.exists()) or inp_p.stat().st_size < 1000:
+            return str(inp_p)
+
+        dur = _ffprobe_duration_sec(str(inp_p))
+        if dur <= 0:
+            return str(inp_p)
+
+        out_p = inp_p.with_name(inp_p.stem + "_pad" + inp_p.suffix)
+
+        # reuse kalau sudah ada dan lebih baru
+        if out_p.exists() and out_p.stat().st_mtime >= inp_p.stat().st_mtime and out_p.stat().st_size > 1000:
+            return str(out_p)
+
+        tgt = dur + float(pad_sec)
+
+        # apad menambah silence, -t membatasi durasi akhir
+        cmd = [
+            "ffmpeg", "-y",
+            "-i", str(inp_p),
+            "-filter_complex", "apad",
+            "-t", f"{tgt:.3f}",
+            "-c:a", "libmp3lame",
+            "-q:a", "4",
+            str(out_p),
+        ]
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+
+        if out_p.exists() and out_p.stat().st_size > 1000:
+            return str(out_p)
+
+        return str(inp_p)
+    except Exception:
+        return inp
+
+def _get_bgm_dir() -> Path:
+    """
+    BGM global:
+    - bisa di-override dari env YTA_BGM_DIR
+    - fallback ke repo_root/assets/bgm
+    """
+    env_dir = (os.getenv("YTA_BGM_DIR") or "").strip()
+    if env_dir:
+        p = Path(env_dir).expanduser().resolve()
+        return p
+    return DEFAULT_BGM_DIR
+
+def _stable_rng(seed_text: str) -> random.Random:
+    h = hashlib.md5(seed_text.encode("utf-8")).hexdigest()
+    return random.Random(int(h[:8], 16))
+
+def pick_style_no_repeat(rng: random.Random, styles, prev=None):
+    if not styles:
+        return "breathe"
+    if prev is None or len(styles) == 1:
+        return rng.choice(styles)
+    pool = [s for s in styles if s != prev]
+    return rng.choice(pool) if pool else rng.choice(styles)
+
+def style_params(style: str):
+    # tweak biar enak dilihat
+    if style == "vibe":
+        return 0.07, 22
+    if style in ("dolly_left", "dolly_right"):
+        return 0.06, 28
+    return 0.08, 0  # breathe
+
+def make_static_bg_clip(
+    image_path: str,
+    dur: float,
+    out_size=(720, 1280),
+):
+    """
+    MANUAL MODE SAFE BG
+    - resize + center crop
+    - NO rotate, NO pan, NO zoom
+    - dijamin full frame 9:16
+    """
+    W, H = out_size
+
+    img = Image.open(image_path).convert("RGB")
+    iw, ih = img.size
+
+    target_ratio = W / H
+    in_ratio = iw / ih
+
+    if in_ratio > target_ratio:
+        # terlalu lebar → crop kiri-kanan
+        new_w = int(ih * target_ratio)
+        left = (iw - new_w) // 2
+        img = img.crop((left, 0, left + new_w, ih))
+    else:
+        # terlalu tinggi → crop atas-bawah
+        new_h = int(iw / target_ratio)
+        top = (ih - new_h) // 2
+        img = img.crop((0, top, iw, top + new_h))
+
+    img = img.resize((W, H), Image.BICUBIC)
+
+    return ImageClip(np.array(img)).with_duration(dur)
+
+def _get_cached_manual_bg(
+    image_path: str,
+    *,
+    max_long_side: int = 1800,
+) -> str:
+    """
+    NOTE (PATCH):
+    Cache background image untuk MANUAL MODE.
+
+    Flow:
+    - Hash path + mtime → cache key
+    - Jika cache ada → pakai langsung
+    - Jika belum:
+        - load + EXIF normalize
+        - downscale awal
+        - simpan JPG cache
+    """
+    os.makedirs(MANUAL_BG_CACHE_DIR, exist_ok=True)
+
+    try:
+        st = os.stat(image_path)
+        sig = f"{image_path}:{st.st_mtime_ns}:{max_long_side}"
+    except Exception:
+        sig = f"{image_path}:{max_long_side}"
+
+    key = hashlib.sha1(sig.encode("utf-8")).hexdigest()[:16]
+    cache_path = os.path.join(MANUAL_BG_CACHE_DIR, f"{key}.jpg")
+
+    if os.path.exists(cache_path):
+        return cache_path
+
+    # ---- build cache ----
+    img = _load_image_normalized(
+        image_path,
+        apply_exif=True,
+        max_long_side=max_long_side,
+    )
+
+    # NOTE:
+    # JPG quality 90 cukup tajam untuk video,
+    # jauh lebih ringan dari PNG / original.
+    img.save(
+        cache_path,
+        format="JPEG",
+        quality=90,
+        subsampling=2,
+        optimize=True,
+    )
+
+    return cache_path
+
+
+def _sub_audio(clip, t0: float, t1: float):
+    # kompatibel moviepy v1/v2 + clamp anti floating error
+    d = float(getattr(clip, "duration", 0.0) or 0.0)
+
+    t0 = max(0.0, float(t0))
+    t1 = float(t1)
+
+    # Epsilon untuk hindari "end_time should be <= duration"
+    eps = 1e-3  # 0.001s aman, ga kerasa di audio
+
+    if d > 0:
+        # jangan pernah minta sampai persis d (rawan float)
+        safe_end = max(0.0, d - eps)
+        t1 = min(t1, safe_end)
+
+    if t1 <= t0:
+        # kalau durasi kepotong terlalu kecil, kasih minimal 1 frame audio
+        t1 = t0 + 0.001
+
+    if hasattr(clip, "subclip"):
+        return clip.subclip(t0, t1)
+    return clip.subclipped(t0, t1)
+
+def _sub(clip, t0: float, t1: float):
+        if hasattr(clip, "subclip"):
+            return clip.subclip(t0, t1)
+        return clip.subclipped(t0, t1)
+
+def _with_mask(clip, mask):
+    if hasattr(clip, "with_mask"):
+        try:
+            return clip.with_mask(mask)
+        except Exception:
+            pass
+    if hasattr(clip, "set_mask"):
+        try:
+            clip.set_mask(mask)
+            return clip
+        except Exception:
+            pass
+    clip.mask = mask
+    return clip
+
+from moviepy.video.VideoClip import VideoClip
+from moviepy import vfx
+
+def _new_videoclip_from_fn(fn, *, ismask: bool, duration: float):
+    """
+    Kompat lintas MoviePy:
+    - v lama: VideoClip(fn) / VideoClip(fn, ismask=True)
+    - v lain: VideoClip(make_frame=fn, ismask=True)  (kalau ada)
+    """
+    try:
+        c = VideoClip(make_frame=fn, ismask=ismask)  # moviepy tertentu
+    except TypeError:
+        try:
+            c = VideoClip(fn, ismask=ismask)          # moviepy v lama
+        except TypeError:
+            c = VideoClip(fn)                         # paling lama
+            try:
+                c.ismask = bool(ismask)
+            except Exception:
+                pass
+
+    # set duration (support v1/v2)
+    try:
+        c = c.with_duration(duration)
+    except Exception:
+        c = c.set_duration(duration)
+    return c
+
+
+def _fadein_masked(clip, dur: float):
+    dur = float(dur or 0.0)
+    if dur <= 0:
+        return clip
+
+    base_mask = getattr(clip, "mask", None)
+    if base_mask is None:
+        # kalau tidak ada mask (RGB biasa) -> fallback fadein biasa
+        try:
+            return clip.with_effects([vfx.FadeIn(dur)])
+        except Exception:
+            return clip.fx(vfx.fadein, dur)
+
+    def mask_frame(t):
+        a = min(1.0, max(0.0, t / dur))
+        return base_mask.get_frame(t) * a
+
+    new_mask = _new_videoclip_from_fn(mask_frame, ismask=True, duration=float(getattr(clip, "duration", 0.0) or 0.0))
+
+    # attach mask (support v1/v2)
+    try:
+        return clip.with_mask(new_mask)
+    except Exception:
+        return clip.set_mask(new_mask)
+
+
+def _fadein_clip(clip, dur: float):
+    """Fade-in kompatibel moviepy v1/v2/fork."""
+    d = float(dur or 0.0)
+    if d <= 0:
+        return clip
+
+    # moviepy v1: clip.fx(vfx.fadein, d)
+    if hasattr(clip, "fx"):
+        try:
+            return clip.fx(vfx.fadein, d)
+        except Exception:
+            pass
+
+    # beberapa build: clip.fadein(d)
+    if hasattr(clip, "fadein"):
+        try:
+            return clip.fadein(d)
+        except Exception:
+            pass
+
+    # moviepy v2: clip.with_effects([vfx.FadeIn(d)])
+    if hasattr(clip, "with_effects"):
+        try:
+            # v2 biasanya FadeIn adalah class
+            if hasattr(vfx, "FadeIn"):
+                return clip.with_effects([vfx.FadeIn(d)])
+        except Exception:
+            pass
+
+    # kadang fadein adalah callable yang menerima (clip, d)
+    try:
+        return vfx.fadein(clip, d)
+    except Exception:
+        return clip
+
+def _fadeout_clip(clip, dur: float):
+    d = float(dur or 0.0)
+    if d <= 0:
+        return clip
+
+    if hasattr(clip, "fx"):
+        try:
+            return clip.fx(vfx.fadeout, d)
+        except Exception:
+            pass
+
+    if hasattr(clip, "fadeout"):
+        try:
+            return clip.fadeout(d)
+        except Exception:
+            pass
+
+    if hasattr(clip, "with_effects"):
+        try:
+            if hasattr(vfx, "FadeOut"):
+                return clip.with_effects([vfx.FadeOut(d)])
+        except Exception:
+            pass
+
+    try:
+        return vfx.fadeout(clip, d)
+    except Exception:
+        return clip
+
+def rgba_clip(png_path: str, dur: float):
+    """
+    Load PNG RGBA -> buat VideoClip + mask dari alpha.
+    Ini bikin transparansi bener (anti black-block).
+    """
+    im = Image.open(png_path).convert("RGBA")
+    arr = np.array(im)
+
+    rgb = arr[..., :3]
+    a = arr[..., 3].astype(np.float32) / 255.0  # 0..1
+
+    clip = ImageClip(rgb).with_duration(dur)
+    mask = ImageClip(a, is_mask=True).with_duration(dur)
+    return clip.with_mask(mask)
+
+def apply_transitions(clips, trans_dur=0.18):
+    """Fade-out akhir clip dan fade-in awal clip berikutnya (tanpa overlap)."""
+    if not clips:
+        return clips
+
+    out = []
+    for i, c in enumerate(clips):
+        cc = c
+        a = getattr(cc, "audio", None)
+
+        # fade-in untuk semua kecuali clip pertama
+        if i > 0:
+            cc = _fadein_clip(cc, trans_dur)
+        # fade-out untuk semua kecuali clip terakhir
+        if i < len(clips) - 1:
+            cc = _fadeout_clip(cc, trans_dur)
+
+        if a is not None:
+            cc = cc.with_audio(a)
+
+        out.append(cc)
+    return out
+
+def _concat_with_crossfade(clips, fade_dur: float):
+    """
+    Crossfade kompatibel MoviePy v1/v2 tanpa .crossfadein().
+    - overlap antar clip pakai padding negatif
+    - masing-masing clip di-fadein/fadeout pakai helper kamu sendiri
+    """
+    if not clips:
+        return None
+    if len(clips) == 1:
+        return clips[0]
+
+    fade_dur = float(fade_dur or 0.0)
+    fade_dur = max(0.0, fade_dur)
+
+    out = clips[0]
+    for nxt in clips[1:]:
+        if fade_dur > 0:
+            out = _fadeout_clip(out, fade_dur)
+            nxt = _fadein_clip(nxt, fade_dur)
+
+            # overlap fade_dur detik
+            out = concatenate_videoclips([out, nxt], method="compose", padding=-fade_dur)
+        else:
+            out = concatenate_videoclips([out, nxt], method="compose")
+
+    return out
+
+# ===============================
+# CINEMATIC MODE helpers
+# ===============================
+try:
+    # MoviePy v2 style
+    from moviepy.video.VideoClip import ColorClip
+except Exception:
+    ColorClip = None
+
+def _apply_cinematic_matte(final_clip: CompositeVideoClip, alpha: float = 0.10) -> CompositeVideoClip:
+    """
+    Tambahkan matte overlay hitam transparan tipis untuk cinematic look.
+    Aman & ringan (tidak ngubah timing / audio).
+    """
+    if not alpha or alpha <= 0.0:
+        return final_clip
+    if ColorClip is None:
+        return final_clip
+
+    try:
+        matte = ColorClip(size=final_clip.size, color=(0, 0, 0)).with_duration(float(final_clip.duration))
+        matte = matte.with_opacity(float(alpha))
+        out = CompositeVideoClip([final_clip, matte], size=final_clip.size).with_duration(float(final_clip.duration))
+        # pertahankan audio kalau ada
+        try:
+            out = out.with_audio(final_clip.audio)
+        except Exception:
+            pass
+        return out
+    except Exception:
+        return final_clip
+
+def _cinematic_matte(dur, size=(720,1280), alpha=0.10):
+    # alpha kecil biar gak gelap banget
+    matte = ColorClip(size=size, color=(0,0,0)).with_duration(dur)
+    return matte.with_opacity(alpha)
+
+# =========================
+# FAST duration (ffprobe)
+# =========================
+def audio_duration_seconds(path: str) -> float:
+    """
+    Jauh lebih cepat daripada AudioFileClip untuk cuma ambil durasi.
+    """
+    try:
+        cmd = [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=nw=1:nk=1",
+            path,
+        ]
+        out = subprocess.check_output(cmd, stderr=subprocess.DEVNULL).decode().strip()
+        return float(out)
+    except Exception:
+        # fallback (lebih lambat)
+        with AudioFileClip(path) as a:
+            return float(a.duration)
+
+
+def split_words(line: str) -> List[str]:
+    line = (line or "").strip()
+    if not line:
+        return []
+    return re.findall(r"[A-Za-z0-9À-ÿ']+|[^\sA-Za-z0-9À-ÿ']+", line, flags=re.UNICODE)
+
+
+def word_durations(words: List[str], total_dur: float) -> List[float]:
+    """
+    Heuristik sederhana tapi stabil:
+    - proporsional panjang kata
+    - last word dipaksa menutup sisa (anti gap)
+    """
+    if not words:
+        return []
+    weights = []
+    for w in words:
+        w2 = re.sub(r"\W+", "", w)
+        weights.append(max(1.0, float(len(w2) or 1)))
+    s = sum(weights)
+    durs = [total_dur * (w / s) for w in weights]
+    # paksa last = sisa exact (anti floating drift)
+    s2 = sum(durs[:-1])
+    durs[-1] = max(0.02, total_dur - s2)
+    return durs
+
+# =========================
+# BGM helpers
+# =========================
+def pick_bgm_path() -> Optional[str]:
+    bgm_dir = _get_bgm_dir()
+    exts = (".mp3", ".wav", ".m4a", ".aac", ".ogg")
+    candidates: list[Path] = []
+
+    if bgm_dir.exists():
+        for e in exts:
+            candidates += list(bgm_dir.glob(f"*{e}"))
+
+    if not candidates:
+        # debug ringan (biar keliatan kalau path salah / folder kosong)
+        print("[BGM] none found. bgm_dir:", str(bgm_dir), "exists:", bgm_dir.exists())
+        return None
+
+    return str(random.choice(candidates))
+
+def _pick_bgm_path() -> Optional[str]:
+    # Sesuaikan folder BGM kamu, contoh: assets/bgm/*.mp3
+    candidates = []
+    for p in ("assets/bgm", "assets/music", "assets/audio"):
+        if os.path.isdir(p):
+            for f in os.listdir(p):
+                if f.lower().endswith((".mp3", ".wav", ".m4a")):
+                    candidates.append(os.path.join(p, f))
+    return random.choice(candidates) if candidates else None
+
+
+def loop_audio_to_duration(a: AudioFileClip, dur: float):
+    if dur <= 0:
+        return a
+
+    base_dur = float(getattr(a, "duration", 0.0) or 0.0)
+    if base_dur <= 0.01:
+        return a
+
+    n = int(dur // base_dur) + 2
+    clips = [a] * n
+    full = concatenate_audioclips(clips)
+
+    # POTONG pakai helper kompatibel
+    return _sub_audio(full, 0, dur)
+
+
+def _vol(a: AudioFileClip, v: float) -> AudioFileClip:
+    try:
+        return a.with_volume_scaled(v)
+    except Exception:
+        try:
+            return a.volumex(v)
+        except Exception:
+            return a
+
+def make_bgm_with_hook(
+    bgm: AudioFileClip,
+    total_dur: float,
+    hook_dur: float,
+    vol_hook: float,
+    vol_normal: float
+) -> AudioFileClip:
+    cut = min(float(hook_dur), float(total_dur))
+
+    # split bgm pakai helper kompatibel
+    a1_src = _sub_audio(bgm, 0, cut)
+    a1 = _vol(a1_src, vol_hook)
+
+    if total_dur <= hook_dur:
+        return a1
+
+    a2_src = _sub_audio(bgm, cut, float(total_dur))
+    a2 = _vol(a2_src, vol_normal)
+
+    return concatenate_audioclips([a1, a2])
+
+
+def audio_gain_and_fade(voice: AudioFileClip, gain: float = 1.0, fade_in: float = 0.05, fade_out: float = 0.12) -> AudioFileClip:
+    v = voice
+
+    # volume (compat)
+    try:
+        # moviepy v2 style
+        v = v.with_volume_scaled(gain)
+    except Exception:
+        try:
+            # moviepy v1 style
+            v = v.volumex(gain)
+        except Exception:
+            pass
+
+    # fade (compat)
+    try:
+        v = v.audio_fadein(fade_in).audio_fadeout(fade_out)
+    except Exception:
+        try:
+            # v2 naming sometimes
+            v = v.with_fadein(fade_in).with_fadeout(fade_out)
+        except Exception:
+            pass
+
+    return v
+
+
+def clamp_duration(clip, min_dur: float = 0.0, max_dur: float = 1e9):
+    d = float(clip.duration or 0.0)
+    if d > max_dur:
+        return clip.subclip(0, max_dur)
+    # kalau lebih pendek dari min_dur, kita biarkan (lebih aman & cepat)
+    return clip
+
+from PIL import Image, ImageOps
+
+def _load_image_normalized(
+    image_path: str,
+    *,
+    apply_exif: bool = False,
+    max_long_side: int | None = None,
+):
+    """
+    NOTE:
+    Helper untuk load image secara AMAN.
+
+    - apply_exif:
+      Jika True → EXIF orientation akan diterapkan (khusus MANUAL MODE).
+      Ini mencegah kasus width/height terbalik yang menyebabkan
+      crop terlihat salah / black bar semu.
+
+    - max_long_side:
+      Jika diset (mis. 1600–2000) → image akan di-downscale SEKALI
+      untuk mengurangi beban PIL di Ken Burns (render lebih cepat).
+
+    AUTO MODE:
+      - apply_exif = False
+      - max_long_side = None
+      (perilaku lama, tidak berubah)
+
+    MANUAL MODE:
+      - apply_exif = True
+      - max_long_side = 1800 (recommended)
+    """
+    img = Image.open(image_path)
+
+    # NOTE:
+    # Manual image (upload HP / Pexels) sering punya EXIF orientation.
+    # PIL TIDAK otomatis apply orientation → harus eksplisit.
+    if apply_exif:
+        try:
+            img = ImageOps.exif_transpose(img)
+        except Exception:
+            pass
+
+    img = img.convert("RGB")
+
+    # NOTE:
+    # Downscale awal (sekali saja) untuk mempercepat Ken Burns.
+    # Aman karena output video hanya 720x1280.
+    if max_long_side:
+        w, h = img.size
+        long_side = max(w, h)
+        if long_side > max_long_side:
+            scale = max_long_side / float(long_side)
+            nw = int(w * scale)
+            nh = int(h * scale)
+            img = img.resize((nw, nh), Image.BICUBIC)
+
+    return img
+
+
+# =========================
+# Ken Burns (FAST)
+# =========================
+def make_kenburn_ffmpeg_cached(
+    image_path: str,
+    dur: float,
+    out_size=(720, 1280),
+    zoom_max: float = 0.06,
+    style: str = "breathe",     # breathe | dolly_left | dolly_right | dolly_up | diag_up_right | push_in
+    drift_px: int = 12,         # kecil biar halus (8–16)
+    fps: int = 30,
+    cache_dir: str = "assets/kb_cache",
+    # cinematic options
+    enable_rotate: bool = False, # saranku False dulu; kalau True pakai rot kecil
+    rot_deg_max: float = 0.35,   # 0.25–0.45 enak untuk 720x1280
+    overscan: float = 1.28,      # 1.22–1.35 aman
+    supersample: int = 2,        # 2 = motion halus (anti stepping)
+) -> VideoFileClip:
+    """
+    FAST + SMOOTH Ken Burns via ffmpeg + cache.
+    Trick utama anti jitter: render motion di resolusi lebih besar (supersample) lalu downscale.
+    """
+
+    W, H = out_size
+    os.makedirs(cache_dir, exist_ok=True)
+
+    # cache key
+    key = (
+        f"{os.path.abspath(image_path)}|{dur:.3f}|{W}x{H}|z{zoom_max:.4f}|{style}|d{drift_px}|"
+        f"fps{fps}|rot{int(enable_rotate)}|r{rot_deg_max:.3f}|os{overscan:.3f}|ss{supersample}"
+    )
+    out_mp4 = os.path.join(cache_dir, hashlib.md5(key.encode("utf-8")).hexdigest() + ".mp4")
+
+    if os.path.exists(out_mp4) and os.path.getsize(out_mp4) > 50_000:
+        return VideoFileClip(out_mp4)
+
+    frames = max(1, int(round(dur * fps)))
+
+    # --- render di resolusi lebih besar untuk menghilangkan "getar kasar" ---
+    WORK_W = W * max(1, int(supersample))
+    WORK_H = H * max(1, int(supersample))
+
+    # overscan canvas kerja (buat rotate aman)
+    OW = int(round(WORK_W * overscan))
+    OH = int(round(WORK_H * overscan))
+
+    # expressions
+    base_x = "iw/2-(iw/zoom/2)"
+    base_y = "ih/2-(ih/zoom/2)"
+    ease = f"(0.5-0.5*cos(PI*(on/{frames})))"  # 0..1 smooth
+
+    # default
+    z_expr = f"1+{zoom_max}*{ease}"
+    x_expr = base_x
+    y_expr = base_y
+
+    if style == "breathe":
+        z_expr = f"1+{zoom_max}*sin(PI*(on/{frames}))"
+        x_expr, y_expr = base_x, base_y
+
+    elif style == "push_in":
+        z_expr = f"1+{zoom_max}*{ease}"
+        x_expr, y_expr = base_x, base_y
+
+    elif style == "dolly_left":
+        dx = f"{drift_px}*{ease}"
+        z_expr = f"1+{zoom_max}*{ease}"
+        x_expr = f"{base_x} - ({dx})"
+        y_expr = base_y
+
+    elif style == "dolly_right":
+        dx = f"{drift_px}*{ease}"
+        z_expr = f"1+{zoom_max}*{ease}"
+        x_expr = f"{base_x} + ({dx})"
+        y_expr = base_y
+
+    elif style == "dolly_up":
+        dy = f"{drift_px}*{ease}"
+        z_expr = f"1+{zoom_max}*{ease}"
+        x_expr = base_x
+        y_expr = f"{base_y} - ({dy})"
+
+    elif style == "diag_up_right":
+        dx = f"{drift_px}*{ease}"
+        dy = f"{int(drift_px * 0.7)}*{ease}"
+        z_expr = f"1+{zoom_max}*{ease}"
+        x_expr = f"{base_x} + ({dx})"
+        y_expr = f"{base_y} - ({dy})"
+
+    # zoompan di canvas overscan
+    zoompan = f"zoompan=z='{z_expr}':x='{x_expr}':y='{y_expr}':d=1:s={OW}x{OH}:fps={fps}"
+
+    # micro rotate (pakai t agar benar-benar smooth)
+    rotate = ""
+    if enable_rotate and rot_deg_max > 0:
+        rot_rad = rot_deg_max * 0.017453292519943295  # deg->rad
+        # 1 gelombang (halus): sin(PI*t/dur)
+        rotate = f",rotate=a='{rot_rad}*sin(PI*t/{dur})':fillcolor=black"
+
+    # crop center ke WORK_W x WORK_H, lalu downscale ke output (anti stepping)
+    final = (
+        f",crop={WORK_W}:{WORK_H}:(in_w-{WORK_W})/2:(in_h-{WORK_H})/2"
+        f",scale={W}:{H}:flags=lanczos"
+    )
+
+    vf = (
+        f"scale={OW}:{OH}:force_original_aspect_ratio=increase,"
+        f"crop={OW}:{OH},"
+        f"{zoompan}"
+        f"{rotate}"
+        f"{final}"
+    )
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-hide_banner", "-loglevel", "error",
+        "-loop", "1",
+        "-framerate", str(fps),
+        "-i", image_path,
+        "-t", f"{dur:.3f}",
+        "-vf", vf,
+        "-r", str(fps),
+        "-an",
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        out_mp4
+    ]
+
+    subprocess.run(cmd, check=True)
+    return VideoFileClip(out_mp4)
+
+def make_motion_safe(
+    image_path: str,
+    dur: float,
+    out_size: tuple[int, int],
+    zoom_max: float = 0.08,
+    style: str = "zoom_in",
+    drift_px: int = 20,
+    qfps: int = 15,  # <-- motion quantization (lebih kecil = lebih cepat)
+) -> VideoClip:
+    W, H = out_size
+
+    # 1) LOAD & CENTER-CROP
+    base0 = Image.open(image_path).convert("RGB")
+    iw, ih = base0.size
+    target_ratio = W / H
+    in_ratio = iw / ih
+
+    if in_ratio > target_ratio:
+        new_w = int(ih * target_ratio)
+        left = (iw - new_w) // 2
+        base0 = base0.crop((left, 0, left + new_w, ih))
+    else:
+        new_h = int(iw / target_ratio)
+        top = (ih - new_h) // 2
+        base0 = base0.crop((0, top, iw, top + new_h))
+
+    # 1.5) UPSCALE cover
+    bw0, bh0 = base0.size
+    cover = max(W / bw0, H / bh0)
+    if cover > 1.0:
+        base0 = base0.resize(
+            (math.ceil(bw0 * cover), math.ceil(bh0 * cover)),
+            Image.BILINEAR,  # <-- faster
+        )
+
+    # 2) OVERSCAN
+    extra = 0.04
+    if style == "micro_drift":
+        extra += min(0.06, max(0.0, drift_px / max(W, H)))
+    scale = 1.0 + zoom_max + extra
+
+    bw0, bh0 = base0.size
+    base = base0.resize((int(bw0 * scale), int(bh0 * scale)), Image.BILINEAR)  # faster
+    bw, bh = base.size
+
+    def smoothstep(u: float) -> float:
+        u = max(0.0, min(1.0, u))
+        return u * u * (3 - 2 * u)
+
+    def clamp(v, lo, hi):
+        return max(lo, min(hi, v))
+
+    # precompute crop params for quantized steps
+    steps = max(1, int(math.ceil(dur * qfps)))
+    params = []
+    for k in range(steps + 1):
+        u = k / steps
+        e = smoothstep(u)
+
+        if style == "zoom_in":
+            z = 1.0 + zoom_max * e
+        elif style == "zoom_out":
+            z = 1.0 + zoom_max * (1.0 - e)
+        elif style == "breathe":
+            z = 1.0 + zoom_max * math.sin(math.pi * e)
+        elif style == "micro_drift":
+            z = 1.0 + zoom_max * e
+        else:
+            z = 1.0 + zoom_max * e
+
+        win_w = W / z
+        win_h = H / z
+
+        cx = bw / 2.0
+        cy = bh / 2.0
+
+        dx = dy = 0.0
+        if style == "micro_drift":
+            dx = drift_px * math.sin(2 * math.pi * e)
+            dy = drift_px * math.cos(2 * math.pi * e)
+
+        x1 = cx - win_w / 2.0 + dx
+        y1 = cy - win_h / 2.0 + dy
+        x1 = clamp(x1, 0, bw - win_w)
+        y1 = clamp(y1, 0, bh - win_h)
+
+        params.append((int(x1), int(y1), int(x1 + win_w), int(y1 + win_h)))
+
+    # 3) FRAME GENERATOR
+    def make_frame(t: float):
+        if dur <= 0:
+            idx = 0
+        else:
+            idx = int(clamp((t / dur) * steps, 0, steps))
+        x1, y1, x2, y2 = params[idx]
+        frame = base.crop((x1, y1, x2, y2)).resize((W, H), Image.BILINEAR)  # faster
+        return np.array(frame)
+
+    clip = VideoClip(make_frame, duration=float(dur))
+    clip.size = (W, H)
+    return clip
+
+def make_kenburns_clip(
+    image_path: str,
+    dur: float,
+    out_size: tuple[int, int],
+    zoom_max: float = 0.12,
+    pan_x: float = 40.0,
+    pan_y: float = 60.0,
+    rot_deg_max: float = 0.9,   # micro rotate max derajat
+    *,
+    manual: bool = False,       # patch baru 2 baris keatas 
+) -> VideoClip:
+    """
+    Ken Burns cinematic:
+    - crop 9:16
+    - overscan lebih besar (anti tepi hitam saat rotate)
+    - zoom + drift (sin/cos)
+    - micro rotate halus ±rot_deg_max derajat
+    - subpixel affine sampling (PIL.transform)
+    """
+    W, H = out_size
+
+    base0 = Image.open(image_path).convert("RGB")
+
+    # crop ke ratio output (center crop)
+    iw, ih = base0.size
+    target_ratio = W / H
+    in_ratio = iw / ih
+
+    if in_ratio > target_ratio:
+        new_w = int(ih * target_ratio)
+        left = (iw - new_w) // 2
+        base0 = base0.crop((left, 0, left + new_w, ih))
+    else:
+        new_h = int(iw / target_ratio)
+        top = (ih - new_h) // 2
+        base0 = base0.crop((0, top, iw, top + new_h))
+
+    # overscan: diperbesar supaya aman untuk rotate
+    # dulu: 1.0 + zoom_max + 0.08
+    # sekarang: + 0.16 (lebih aman)
+    scale = 1.0 + zoom_max + 0.16
+    bw0, bh0 = base0.size
+    base = base0.resize((int(bw0 * scale), int(bh0 * scale)), Image.BICUBIC)
+    bw, bh = base.size
+
+    #def ease_in_out(u: float) -> float:
+    #    return u * u * (3 - 2 * u)
+    def ease_in_out(u: float) -> float:
+        u = max(0.0, min(1.0, u))
+        return u*u*u*(u*(u*6 - 15) + 10)  # smootherstep
+
+    def make_frame(t: float):
+        if dur <= 0:
+            u = 0.0
+        else:
+            u = max(0.0, min(1.0, t / dur))
+        e = ease_in_out(u)
+
+        # zoom in halus
+        z = 1.0 + zoom_max * e
+
+        # drift lebih cinematic (berubah arah)
+        #px = math.sin(e * math.pi * 2.0) * 0.5
+        px = math.sin(e * math.pi) * 0.5          # 1 gelombang, lebih smooth
+        #py = math.cos(e * math.pi * 1.5) * 0.5
+        py = math.cos(e * math.pi * 0.75) * 0.5   # pelan, beda phase tipis
+        cx = (bw / 2.0) + px * pan_x
+        cy = (bh / 2.0) + py * pan_y
+
+        # ukuran window di base yang akan di-map ke output (W,H)
+        win_w = W / z
+        win_h = H / z
+
+        x1 = cx - win_w / 2.0
+        y1 = cy - win_h / 2.0
+
+        # clamp biar window tidak keluar batas base
+        x1 = max(0.0, min(x1, bw - win_w))
+        y1 = max(0.0, min(y1, bh - win_h))
+
+        # micro rotate ±rot_deg_max derajat
+        #rot_deg = rot_deg_max * math.sin(e * math.pi * 2.0)
+        rot_deg = rot_deg_max * math.sin(e * math.pi)  # rotasi pelan, halus
+        rot = math.radians(rot_deg)
+
+        cosr = math.cos(rot)
+        sinr = math.sin(rot)
+
+        # AFFINE mapping:
+        # out(x,y) samples src at:
+        # X = x1 + (cosr*x - sinr*y)/z
+        # Y = y1 + (sinr*x + cosr*y)/z
+        a = (cosr / z)
+        b = (-sinr / z)
+        c = float(x1)
+        d = (sinr / z)
+        e2 = (cosr / z)
+        f = float(y1)
+
+        frame = base.transform(
+            (W, H),
+            Image.AFFINE,
+            (a, b, c, d, e2, f),
+            resample=Image.BICUBIC,
+        )
+        return np.array(frame)
+
+    return VideoClip(make_frame, duration=float(dur))
+
+# =========================
+# TEMPLATE BANK (from JSON)
+# =========================
+
+_BANK_CACHE = None
+_BANK_PATH_CACHE = None
+
+_LAST_HOOK_IDX = None
+_LAST_CTA_IDX = None
+
+
+def _load_template_bank(bank_path: Optional[str] = None) -> dict:
+    """
+    Load template bank dari JSON.
+    Default path: ytshorts/template_bank.json (1 folder dengan file ini)
+    Cache biar tidak baca file berulang.
+    """
+    global _BANK_CACHE, _BANK_PATH_CACHE
+
+    if bank_path is None:
+        # path relatif ke lokasi file video_word.py
+        bank_path = os.path.join(os.path.dirname(__file__), "template_bank.json")
+
+    bank_path = os.path.abspath(bank_path)
+
+    # cache hit
+    if _BANK_CACHE is not None and _BANK_PATH_CACHE == bank_path:
+        return _BANK_CACHE
+
+    with open(bank_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    # normalize minimal
+    hooks = data.get("hook_templates") or []
+    ctas = data.get("cta_templates") or []
+
+    # pastikan bentuknya list of [title, subtitle]
+    def _norm(pairs):
+        out = []
+        for it in pairs:
+            if isinstance(it, (list, tuple)) and len(it) >= 2:
+                out.append((str(it[0]), str(it[1])))
+        return out
+
+    data["hook_templates"] = _norm(hooks)
+    data["cta_templates"] = _norm(ctas)
+
+    _BANK_CACHE = data
+    _BANK_PATH_CACHE = bank_path
+    return data
+
+def _pick_non_repeat(
+    rng: random.Random,
+    items: List[Tuple[str, str]],
+    last_idx_holder_name: str,
+) -> Optional[Tuple[str, str]]:
+    """
+    Pilih item random tapi tidak sama dengan pilihan sebelumnya (per kategori).
+    """
+    global _LAST_HOOK_IDX, _LAST_CTA_IDX
+
+    n = len(items)
+    if n == 0:
+        return None
+
+    last = _LAST_HOOK_IDX if last_idx_holder_name == "hook" else _LAST_CTA_IDX
+
+    if n == 1:
+        idx = 0
+    else:
+        idx = rng.randrange(n)
+        if last is not None and idx == last:
+            idx = (idx + 1) % n
+
+    if last_idx_holder_name == "hook":
+        _LAST_HOOK_IDX = idx
+    else:
+        _LAST_CTA_IDX = idx
+
+    return items[idx]
+
+def get_hook_pair(
+    rng: random.Random,
+    hook_subtitle: str | None = None,
+    bank_path: str | None = None,
+) -> tuple[str, str]:
+    bank = _load_template_bank(bank_path)
+    hooks: list[tuple[str, str]] = bank.get("hook_templates") or []
+    picked = _pick_non_repeat(rng, hooks, "hook") or ("KAMU JARANG TAU!", "FAKTA CEPAT")
+    hook_title, hook_sub = picked
+
+    if hook_subtitle:  # override subtitle dari arg
+        hook_sub = hook_subtitle
+
+    return hook_title, hook_sub
+
+def get_cta_pair(
+    rng: random.Random,
+    cta_subtitle: str | None = None,
+    bank_path: str | None = None,
+) -> tuple[str, str]:
+    bank = _load_template_bank(bank_path)
+    ctas: list[tuple[str, str]] = bank.get("cta_templates") or []
+    picked = _pick_non_repeat(rng, ctas, "cta") or ("LIKE KALO BARU TAU!", "SAVE BIAR GAK LUPA")
+    cta_title, cta_sub = picked
+
+    if cta_subtitle:  # override subtitle dari arg
+        cta_sub = cta_subtitle
+
+    return cta_title, cta_sub
+
+def _overscale_image_for_kb(
+    src_path: str,
+    out_size: tuple[int, int] = (720, 1280),
+    overscale: float = 1.70,
+    cache_dir: str = "assets/kb_cache/overscale",
+) -> str:
+    """
+    Buat cache image yang:
+    - di-EXIF transpose (rotasi benar)
+    - di-COVER ke aspect ratio out_size (crop center)
+    - di-resize ke (out_size * overscale)
+    Hasil: background pasti full, no blank hitam.
+    """
+    import os, hashlib
+    from pathlib import Path
+
+    overscale = float(overscale or 1.0)
+    if overscale <= 1.001:
+        return src_path
+
+    src = Path(src_path)
+    if not src.exists() or not src.is_file():
+        return src_path
+
+    out_dir = Path(cache_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    tw, th = int(out_size[0]), int(out_size[1])
+    ow, oh = int(round(tw * overscale)), int(round(th * overscale))
+
+    sig = f"{src.resolve()}|{src.stat().st_mtime_ns}|{ow}x{oh}"
+    h = hashlib.sha1(sig.encode("utf-8")).hexdigest()[:16]
+
+    # simpan sebagai jpg biar ringan (png boleh kalau kamu butuh alpha)
+    out = out_dir / f"{src.stem}_cover_os{int(overscale*100)}_{h}.jpg"
+    if out.exists() and out.stat().st_size > 0:
+        return str(out)
+
+    try:
+        from PIL import Image, ImageOps
+
+        im = Image.open(src)
+        im = ImageOps.exif_transpose(im)
+        im = im.convert("RGB")
+
+        # COVER: crop center ke aspect out_size, lalu resize ke overscaled dims
+        im2 = ImageOps.fit(im, (ow, oh), method=Image.LANCZOS, centering=(0.5, 0.5))
+
+        # guard biar file gak kebesaran
+        MAX_DIM = 4096
+        if max(im2.size) > MAX_DIM:
+            s = MAX_DIM / float(max(im2.size))
+            im2 = im2.resize((int(im2.size[0] * s), int(im2.size[1] * s)), Image.LANCZOS)
+
+        im2.save(out, format="PNG", compress_level=6)
+        return str(out)
+    except Exception:
+        return src_path
+
+def _style_to_pan(style: str, drift_px: float = 30.0) -> tuple[float, float]:
+    """
+    Translate nama style ke arah pan. make_kenburns_clip pakai pan_x/pan_y.
+    """
+    s = (style or "").lower()
+    d = float(drift_px or 30.0)
+
+    # default diagonal halus
+    x = d * 0.8
+    y = d * 0.8
+
+    if "left" in s:
+        x = -abs(d)
+    elif "right" in s:
+        x = abs(d)
+    elif "center" in s:
+        x = 0.0
+
+    if "up" in s:
+        y = -abs(d)
+    elif "down" in s:
+        y = abs(d)
+    elif "center" in s:
+        y = 0.0
+
+    if "breathe" in s:
+        x *= 0.35
+        y *= 0.35
+
+    return float(x), float(y)
+
+# =========================
+# MAIN BUILDER (FAST)
+# =========================
+def build_onefact_video_word_captions(
+    bg_paths: List[str],
+    lines: List[str],
+    tts_files: List[str],
+    out_dir: str,
+    out_mp4: str, hook_subtitle: "FAKTA CEPAT",
+    watermark_text: str | None = None,
+    watermark_opacity: int = 120,
+    watermark_position: str = "top-right",
+    doc=None,
+    cinematic: bool = False,
+    curiosity_text: str = None,
+    render_mode: str = "auto",
+    # NOTE:
+    # force_fill digunakan untuk MANUAL MODE.
+    # Tujuannya: memaksa background mengisi canvas video (crop center)
+    # agar tidak muncul black bar kanan/bawah.
+) -> str:
+    """
+    PATCH (RAM SAFE):
+    - 1 clip per line (CompositeVideoClip bg + overlay start time)
+    - no concatenate per-word (penyebab OOM)
+    - CTA dibuat tail (freeze frame) supaya tidak black-block
+    """
+
+    import gc
+    from moviepy import AudioClip  # untuk silence tail
+
+    os.makedirs(out_dir, exist_ok=True)
+    cap_dir = os.path.join(out_dir, "_wordcaps")
+    os.makedirs(cap_dir, exist_ok=True)
+
+    overlay_dir = os.path.join(out_dir, "_overlays")
+    os.makedirs(overlay_dir, exist_ok=True)
+
+    #HOOK_DUR = 1.2
+    CTA_DUR = 1.4
+    FADE_DUR = 0.25
+
+    # EPS: hindari error end_time == duration (moviepy suka rewel)
+    EPS = 1.0 / float(FPS * 2)
+
+    segments: List = []
+    rng = _stable_rng(str(out_mp4))  # konsisten per output video
+
+    # =========================
+    # BUILD CONTENT SEGMENTS (RAM SAFE)
+    # =========================
+    for i, line in enumerate(lines):
+        audio_path = tts_files[i]
+
+        # load audio sekali
+        voice = AudioFileClip(audio_path)
+        voice_dur = float(getattr(voice, "duration", 0.0) or 0.0)
+        dur = max(1.2, voice_dur)
+
+        # pilih bg bergantian per line
+        bg_src = bg_paths[i % len(bg_paths)]
+        bg_cache = {}
+        rng = _stable_rng(str(out_mp4))
+        prev_style = None
+        first_style = None
+
+        if render_mode == "manual":
+            style = pick_style_no_repeat(rng, MANUAL_STYLES, prev_style)
+            prev_style = style
+            if i == 0:
+                first_style = style
+
+            z, drift = style_params(style)
+
+            # NEW: overscale dulu supaya pan/zoom tidak bikin blank hitam
+            kb_src = _overscale_image_for_kb(bg_src, overscale=1.75, cache_dir="assets/kb_cache/overscale")
+
+            pan_x, pan_y = _style_to_pan(style, drift_px=drift)
+
+            key = (kb_src, round(dur, 1), f"line_{style}_z{z}_d{drift}")
+            if key not in bg_cache:
+                bg_cache[key] = make_kenburns_clip(
+                    kb_src,
+                    dur=dur,
+                    out_size=(720, 1280),
+                    zoom_max=float(z) if z is not None else 0.06,
+                    pan_x=float(pan_x),
+                    pan_y=float(pan_y),
+                ).with_duration(dur)
+
+            bg_full = bg_cache[key]
+            print(f"[DBG] manual style line#{i}: {style}")
+
+        elif render_mode == "auto":
+            # AUTO / SINGLE MODE → Ken Burns tetap
+            bg_full = make_kenburns_clip(
+                bg_src,
+                dur=dur,
+                out_size=(720, 1280),
+                zoom_max=0.12,
+                pan_x=40.0,
+                pan_y=60.0,
+            ).with_duration(dur)
+
+        print("[DBG] bg_full size:", getattr(bg_full, "size", None))
+        print(f"[DBG] BG render_mode={render_mode}, bg={bg_src}")
+
+        words = split_words(line)
+        if not words:
+            # trim audio aman: end_time harus < duration
+            t_end = max(0.0, min(dur, max(0.0, voice_dur - EPS)))
+            voice_cut = _sub_audio(voice, 0, t_end) if t_end > 0 else voice
+            clip = bg_full.with_audio(voice_cut).with_duration(dur)
+            segments.append(clip)
+            gc.collect()
+            continue
+
+        durs = word_durations(words, dur)
+
+        overlays = []
+        so_far: List[str] = []
+        t_cursor = 0.0
+
+        for w_idx, w in enumerate(words):
+            so_far.append(w)
+
+            ov_path = os.path.join(cap_dir, f"cap_{i:02d}_{w_idx:03d}.png")
+            render_word_overlay(so_far, w, ov_path)
+
+            seg_dur = float(durs[w_idx])
+
+            # bikin ImageClip overlay
+            try:
+                # kalau kamu punya helper rgba_clip biar alpha pasti kebaca
+                ov = rgba_clip(ov_path, seg_dur)  # type: ignore
+            except Exception:
+                ov = ImageClip(ov_path).with_duration(seg_dur)
+
+            # fade-in ringan
+            fade_in = min(0.08, seg_dur * 0.35)
+
+            def opacity(t, fi=fade_in):
+                return min(1.0, max(0.0, t / max(0.001, fi)))
+
+            try:
+                ov = ov.with_opacity(opacity)
+            except Exception:
+                pass
+
+            # set start time overlay pada timeline line (INI KUNCI: no subclip bg)
+            if hasattr(ov, "with_start"):
+                ov = ov.with_start(t_cursor)
+            else:
+                ov = ov.set_start(t_cursor)
+
+            overlays.append(ov)
+            t_cursor += seg_dur
+
+        TARGET_SIZE = (720, 1280)
+
+        try:
+            bg_full = bg_full.with_position(("center", "center"))
+        except Exception:
+            bg_full = bg_full.set_position(("center", "center"))
+
+        clip = CompositeVideoClip([bg_full] + overlays, size=TARGET_SIZE).with_duration(dur)
+        # 1 clip per line (hemat RAM)
+        # clip = CompositeVideoClip([bg_full] + overlays).with_duration(dur)
+
+        # audio trim aman
+        t_end = max(0.0, min(dur, max(0.0, voice_dur - EPS)))
+        voice_cut = _sub_audio(voice, 0, t_end) if t_end > 0 else voice
+
+        clip = clip.with_audio(voice_cut).with_duration(dur)
+        segments.append(clip)
+
+        # bantu GC (di RAM kecil ini ngebantu)
+        gc.collect()
+
+    # =========================
+    # HOOK SEGMENT (TERPISAH)
+    # =========================
+    if segments:
+        HOOK_DUR = 2.0  # +++ CHANGED: hook lebih lama
+        first_style = None
+
+        seed = abs(hash(str(out_mp4))) % (10**9)
+        rng = random.Random(seed)
+
+        # title auto dari doc
+        bank = _load_template_bank()
+        hook_title, hook_sub = _pick_non_repeat(rng, bank["hook_templates"], "hook") or ("KAMU JARANG TAU!", "FAKTA CEPAT")
+        if hook_subtitle:
+            hook_sub = hook_subtitle
+
+        hook_png = os.path.join(overlay_dir, f"hook_impact_{Path(out_mp4).stem}.png")
+        render_impact_hook_overlay(hook_png, 720, 1280, title=hook_title, subtitle=hook_sub)
+
+        # background untuk hook (pakai BG pertama biar konsisten)
+        hook_bg_src = bg_paths[0] if bg_paths else None
+        if hook_bg_src:
+            if render_mode == "manual":
+                style = first_style or "breathe"
+                z, drift = style_params(style)
+
+                # NEW: overscale hook image juga biar aman
+                kb_src = _overscale_image_for_kb(hook_bg_src, overscale=1.75, cache_dir="assets/kb_cache/overscale")
+                pan_x, pan_y = _style_to_pan(style, drift_px=drift)
+
+                key = (kb_src, round(HOOK_DUR, 1), f"hook_{style}_z{z}_d{drift}")
+                if key not in bg_cache:
+                    bg_cache[key] = make_kenburns_clip(
+                        kb_src,
+                        dur=HOOK_DUR,
+                        out_size=(720, 1280),
+                        zoom_max=float(z) if z is not None else 0.06,
+                        pan_x=float(pan_x),
+                        pan_y=float(pan_y),
+                    ).with_duration(HOOK_DUR)
+
+                hook_bg = bg_cache[key]
+                print(f"[DBG] manual HOOK style: {style}")
+
+            else:
+                hook_bg = make_kenburns_clip(
+                    hook_bg_src,
+                    dur=HOOK_DUR,
+                    out_size=(720, 1280),
+                    zoom_max=0.10,
+                    pan_x=55.0,
+                    pan_y=35.0,
+                ).with_duration(HOOK_DUR)
+        else:
+            # fallback: kalau nggak ada bg
+            hook_bg = ColorClip((720, 1280), color=(0, 0, 0)).with_duration(HOOK_DUR)
+
+        print(f"[DBG] HOOK render_mode={render_mode}, bg={bg_src}")
+
+        hook_ov = rgba_clip(hook_png, HOOK_DUR).with_duration(HOOK_DUR)
+
+        # scale-in cepat (tanpa fadein, biar dari frame pertama sudah terang)
+        def _scale(t: float) -> float:
+            ramp = min(1.0, max(0.0, t / 0.12))
+            return 0.88 + 0.12 * ramp
+
+        # HIDUPKAN LAGI KLO PROBLEM BLANK HITAM SUDAH SOLVED
+        # hook_ov = hook_ov.resized(lambda t: _scale(t))
+
+        # posisi lebih atas (atur angka ini)
+        HOOK_Y = 100
+        def _pos(t: float):
+            dy = int(6 * math.sin(40 * t) * (1.0 - min(1.0, t / 0.6)))
+            return ("center", int(HOOK_Y + dy))
+
+        hook_ov = hook_ov.with_position(_pos)
+
+        hook_clip = CompositeVideoClip([hook_bg, hook_ov], size=hook_bg.size).with_duration(HOOK_DUR)
+
+        # +++ IMPORTANT: hook jadi segmen TERPISAH, bukan overlay segmen pertama
+        segments = [hook_clip] + segments
+
+    # =========================
+    # CURIOSITY CAPTION (meta hook)
+    # =========================
+    #curiosity = None
+    #if doc is not None:
+    #curiosity = getattr(doc, "hook", None)
+    curiosity = curiosity_text
+
+    if not curiosity and doc is not None:
+        curiosity = getattr(doc, "hook", None)
+
+    # Fallback terakhir: Ambil kalimat pertama dari script jika masih kosong
+    if not curiosity and lines:
+        # Ambil 5-7 kata pertama saja supaya tidak kepanjangan
+        first_line = lines[0].split()
+        curiosity = " ".join(first_line[:7])        
+
+    if curiosity and segments:
+        cur_png = os.path.join(overlay_dir, f"cur_{Path(out_mp4).stem}.png")
+        render_curiosity_overlay(cur_png, 720, 1280, curiosity)
+
+        CUR_DUR = 1.8  # tampil sebentar
+        cur_ov = rgba_clip(cur_png, CUR_DUR).with_start(0).with_duration(CUR_DUR)
+        cur_ov = cur_ov.with_position(("center", int(340)))  # atur posisi
+        # kalau mau tanpa fade supaya dari frame pertama pasti putih:
+        # (atau kasih fade tipis)
+        # cur_ov = _fadein_clip(cur_ov, 0.10)
+        cur_ov = _fadeout_clip(cur_ov, 0.20)
+
+        first = segments[0]
+        segments[0] = CompositeVideoClip([first, cur_ov], size=first.size).with_duration(first.duration)
+
+    # =========================
+    # CTA TAIL (freeze frame) -> tidak ngeblok hitam & tidak nutup tts
+    # =========================
+    if segments:
+        last = segments[-1]
+
+        # ambil frame terakhir yang aman
+        t_freeze = max(0.0, float(last.duration) - (1.0 / float(FPS)))
+        frame = last.get_frame(t_freeze)
+        tail_bg = ImageClip(frame).with_duration(CTA_DUR)
+
+        seed = abs(hash(Path(out_mp4).stem)) % (2**32)
+        rng = random.Random(seed)
+
+        try:
+            # versi recommended (kalau helper ini sudah kamu bikin)
+            cta_text, cta_sub = get_cta_pair(
+                rng,
+                cta_subtitle=None,   # kalau kamu mau override subtitle via arg, isi di sini
+                bank_path=None,      # kalau kamu pakai env/path bank, isi
+            )
+        except Exception:
+            # fallback langsung pakai _pick_non_repeat + bank loader
+            bank = _load_template_bank(None)
+            ctas = bank.get("cta_templates") or []
+            picked = _pick_non_repeat(rng, ctas, "cta") or ("LIKE KALO BARU TAU!", "SAVE BIAR GAK LUPA")
+            cta_text, cta_sub = picked
+
+        cta_png = os.path.join(overlay_dir, f"cta_{Path(out_mp4).stem}.png")
+        cta_tmp = cta_png + ".tmp.png"
+
+        # optional: paksa regenerate (hindari cache aneh)
+        try:
+            if os.path.exists(cta_png):
+                os.remove(cta_png)
+        except Exception:
+            pass
+
+        render_cta_overlay(cta_png, 720, 1280, cta_text, cta_sub)
+
+        try:
+            cta_ov = rgba_clip(cta_png, CTA_DUR)  # type: ignore
+        except Exception:
+            cta_ov = ImageClip(cta_png).with_duration(CTA_DUR).set_position(("center", "center"))
+
+        cta_ov = _fadein_masked(cta_ov, FADE_DUR)
+
+        tail = CompositeVideoClip([tail_bg, cta_ov]).with_duration(CTA_DUR)
+
+        # audio tail = silence (compat)
+        silence = AudioClip(lambda t: 0.0, duration=CTA_DUR)
+        try:
+            silence = silence.set_fps(44100)
+        except Exception:
+            pass
+        tail = tail.with_audio(silence)
+
+        # sambung: konten terakhir + tail CTA
+        segments[-1] = concatenate_videoclips([last, tail], method="compose")
+
+    # gabung semua
+    #XF = 0.12
+    #for i in range(len(segments)-1):
+    #    segments[i] = segments[i].fadeout(XF)
+    #    segments[i+1] = segments[i+1].fadein(XF)
+    #final = concatenate_videoclips(segments, method="compose")
+    #final = concat_with_crossfade(segments, xf=0.18)  # coba 0.15–0.22
+
+    final = _concat_with_crossfade(segments, fade_dur=0.25)
+
+    # =========================
+    # WATERMARK (overlay all duration)
+    # =========================
+    wm_txt = (watermark_text or "").strip()
+    if wm_txt:  # kalau kosong, skip watermark
+        wm_png = os.path.join(overlay_dir, f"wm_{Path(out_mp4).stem}.png")
+        wm_png = render_watermark(
+            wm_png, 720, 1280,
+            text=wm_txt,
+            opacity=watermark_opacity,
+            position=watermark_position,
+        )
+
+        if wm_png:
+            try:
+                wm = rgba_clip(wm_png, float(final.duration))
+            except Exception:
+                wm = ImageClip(wm_png).with_duration(float(final.duration))
+
+            # pastikan posisinya tetap (png sudah “di posisi”, jadi cukup overlay full-frame)
+            final = CompositeVideoClip([final, wm]).with_duration(float(final.duration))
+
+    # =========================
+    # ADD BGM (optional)
+    # =========================
+    bgm_path = pick_bgm_path()
+    if bgm_path:
+        bgm = AudioFileClip(bgm_path)
+        bgm_loop = loop_audio_to_duration(bgm, float(final.duration))
+
+        bgm_loop = make_bgm_with_hook(
+            bgm_loop,
+            total_dur=float(final.duration),
+            hook_dur=float(HOOK_DUR),
+            vol_hook=0.22,
+            vol_normal=0.12,
+        )
+
+        if final.audio is not None:
+            final = final.with_audio(CompositeAudioClip([bgm_loop, final.audio]))
+        else:
+            final = final.with_audio(bgm_loop)
+
+    # ===============================
+    # CINEMATIC MODE (optional)
+    # ===============================
+    # Default OFF -> tidak mengubah style default.
+    if cinematic:
+        # alpha 0.10 cukup kerasa cinematic tapi tidak gelap berlebihan
+        final = _apply_cinematic_matte(final, alpha=0.10)
+
+    # =========================
+    # WRITE VIDEO (lebih aman RAM)
+    # =========================
+    final.write_videofile(
+        out_mp4,
+        fps=FPS,
+        codec="libx264",
+        audio_codec="aac",
+        preset="ultrafast",      # <--- penting untuk server kecil
+        bitrate="3000k",
+        audio_bitrate="128k",
+        threads=2,
+        ffmpeg_params=[
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+        ],
+    )
+
+    # bantu release (moviepy kadang nahan)
+    try:
+        final.close()
+    except Exception:
+        pass
+    gc.collect()
+
+    return out_mp4
+
+def pick_random_bgm(project_root: str | None = None, seed: int | None = None) -> str | None:
+    """
+    Ambil 1 file BGM random dari BGM_DIR global (env YTA_BGM_DIR) / fallback repo assets/bgm.
+    """
+    import random as _rnd
+    bgm_dir = _get_bgm_dir()
+    if not bgm_dir.exists():
+        return None
+
+    exts = (".mp3", ".wav", ".m4a", ".aac", ".ogg")
+    files: list[Path] = []
+    for e in exts:
+        files += list(bgm_dir.glob(f"*{e}"))
+
+    if not files:
+        return None
+
+    rng = _rnd.Random(seed) if seed is not None else _rnd.Random()
+    return str(rng.choice(files))
+
+def _pick_random_bgm(project_root: str | None = None, seed: int | None = None) -> str | None:
+    """
+    Ambil 1 file BGM random dari assets/bgm.
+    Support: .mp3 .wav .m4a .aac .ogg
+    """
+    import os, random
+    from pathlib import Path
+
+    root = Path(project_root) if project_root else Path.cwd()
+    bgm_dir = root / "assets" / "bgm"
+    if not bgm_dir.exists():
+        return None
+
+    exts = (".mp3", ".wav", ".m4a", ".aac", ".ogg")
+    files = []
+    for e in exts:
+        files += list(bgm_dir.glob(f"*{e}"))
+
+    if not files:
+        return None
+
+    rng = random.Random(seed) if seed is not None else random.Random()
+    return str(rng.choice(files))
+
+
+def _audio_loop_to_duration(a, duration: float):
+    """
+    Loop audio sampai >= duration, lalu trim pas duration.
+    MoviePy v1/v2 kompatibel.
+    """
+    import math
+    from moviepy import concatenate_audioclips
+
+    dur = float(getattr(a, "duration", 0.0) or 0.0)
+    if dur <= 0.01:
+        return a
+
+    reps = max(1, int(math.ceil(duration / dur)))
+    parts = [a] * reps
+    out = concatenate_audioclips(parts)
+
+    # trim
+    if hasattr(out, "subclipped"):
+        out = out.subclipped(0, duration)
+    else:
+        out = out.subclip(0, duration)
+    return out
+
+
+def _vol(a, factor: float):
+    """
+    Scale volume (MoviePy v1/v2 kompatibel).
+    """
+    factor = float(factor)
+    if hasattr(a, "volumex"):
+        return a.volumex(factor)  # v1
+    if hasattr(a, "with_volume_scaled"):
+        return a.with_volume_scaled(factor)  # v2
+    return a
+
+def _load_template_bank_json(project_root: str | None = None):
+    import json
+    from pathlib import Path
+
+    root = Path(project_root) if project_root else Path.cwd()
+    p = root / "ytshorts" / "template_bank.json"
+    if not p.exists():
+        # fallback: relative file location
+        p = Path(__file__).resolve().parents[0] / "template_bank.json"
+    data = json.loads(p.read_text(encoding="utf-8"))
+    return {
+        "hook_templates": data.get("hook_templates") or [],
+        "cta_templates": data.get("cta_templates") or [],
+    }
+
+
+def _pick_pair(rng, pairs, fallback=("TAHUKAH KAMU?", "FAKTA CEPAT")):
+    try:
+        if pairs:
+            a, b = rng.choice(pairs)
+            a = (a or "").strip()
+            b = (b or "").strip()
+            if a:
+                return a, b
+    except Exception:
+        pass
+    return fallback
+
+
+def build_onefact_video_stock_captions(
+    *,
+    scenes: list[dict],
+    out_mp4: str,
+    target_size: tuple[int, int] = (720, 1280),
+    audio_path: str | None = None,
+    captions_srt: str | None = None,
+    caption_font_size: int = 34,              # ✅ ADD
+    caption_position: str = "Bottom",         # ✅ ADDhook_subtitle: str = "FAKTA CEPAT",
+    hook_subtitle: str = "FAKTA CEPAT",
+    watermark_text: str | None = None,
+    watermark_opacity: int = 120,
+    watermark_position: str = "top-right",
+    cinematic: bool = False,
+    bgm_enabled: bool = True,
+    bgm_volume: float = 0.20,
+    avatar_cfg: dict | None = None,
+    assets_dir: str | None = None,
+) -> str:
+    """
+    AUTO STOCK RENDERER (video backgrounds)
+    - Trim tiap clip sesuai scene.duration
+    - Resize/crop -> 720x1280 (9:16)
+    - Concat (crossfade via helper _concat_with_crossfade kalau ada)
+    - Attach audio_path (tts final) jika ada
+    - Overlay hook/cta overlays (PNG) jika scene.text_overlay ada
+    - Optional burn captions SRT via ffmpeg subtitles filter
+    - Print PROGRESS: X% untuk Streamlit progress parser
+    """
+
+    import os, gc, math, subprocess, shlex, time
+    from pathlib import Path
+    from moviepy import (
+        VideoFileClip,
+        AudioFileClip,
+        CompositeVideoClip,
+        CompositeAudioClip,
+        ImageClip,
+        ColorClip,
+        concatenate_videoclips,
+        vfx
+    )
+
+    os.makedirs(os.path.dirname(out_mp4) or ".", exist_ok=True)
+    out_dir = os.path.dirname(out_mp4) or "."
+    overlay_dir = os.path.join(out_dir, "_overlays")
+    os.makedirs(overlay_dir, exist_ok=True)
+
+    TARGET_W, TARGET_H = int(target_size[0]), int(target_size[1])
+    TARGET_SIZE = (TARGET_W, TARGET_H)
+
+    import random as _rnd
+    _seed = abs(hash(str(out_mp4))) % (10**9)
+    rng = _rnd.Random(_seed)
+
+    from pathlib import Path
+    project_root = str(Path(out_mp4).resolve().parents[2])
+    bank = _load_template_bank_json(project_root)
+
+    # --- helpers ---
+    def _safe_close(clip):
+        try:
+            clip.close()
+        except Exception:
+            pass
+
+    def _shift_png_y(png_path: str, dy: int) -> None:
+        """
+        Geser isi PNG (RGBA) ke atas/bawah tanpa ubah ukuran canvas.
+        dy negatif = naik, dy positif = turun.
+        """
+        try:
+            from PIL import Image
+            img = Image.open(png_path).convert("RGBA")
+            w, h = img.size
+            out = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+            # paste dengan offset (boleh negatif, akan ter-crop otomatis)
+            out.paste(img, (0, int(dy)))
+            out.save(png_path, "PNG")
+        except Exception as e:
+            print(f"[AUTO-STOCK][WARN] shift png fail: {png_path} dy={dy} err={e}")
+
+    def _autocrop_alpha_png(png_in: str, png_out: str) -> str:
+        # crop gambar PNG berdasarkan area alpha > 0
+        from PIL import Image
+        im = Image.open(png_in).convert("RGBA")
+        bbox = im.split()[-1].getbbox()  # alpha bbox
+        if not bbox:
+            im.save(png_out)
+            return png_out
+        im.crop(bbox).save(png_out)
+        return png_out
+
+
+    def _sanitize_srt_for_ass(srt_path: str) -> str:
+        p = Path(srt_path)
+        txt = p.read_text(encoding="utf-8", errors="ignore")
+
+        # hapus override alignment ASS yang bikin caption ke tengah: {\an5}, {\an8}, dst
+        txt = re.sub(r"\{\\an\d+\}", "", txt)
+
+        # optional: hapus tag ASS lainnya yang bisa override style
+        txt = re.sub(r"\{[^}]+\}", "", txt)
+
+        out = p.with_name(p.stem + "_sanitized.srt")
+        out.write_text(txt, encoding="utf-8")
+        return str(out)
+
+    def _sub(v, t0, t1):
+        # moviepy v2 uses subclipped; v1 uses subclip
+        if hasattr(v, "subclipped"):
+            return v.subclipped(t0, t1)
+        return v.subclip(t0, t1)
+
+    def _dur(c, d):
+        return c.with_duration(d) if hasattr(c, "with_duration") else c.set_duration(d)
+
+    def _pos(c, p):
+        return c.with_position(p) if hasattr(c, "with_position") else c.set_position(p)
+
+    def _aud(c, a):
+        return c.with_audio(a) if hasattr(c, "with_audio") else c.set_audio(a)
+
+    def _vol(aud, factor: float):
+        # moviepy v2: with_volume_scaled; v1: volumex
+        if hasattr(aud, "with_volume_scaled"):
+            return aud.with_volume_scaled(float(factor))
+        if hasattr(aud, "volumex"):
+            return aud.volumex(float(factor))
+        return aud
+
+    def _resize_clip(c, *, width=None, height=None):
+        # MoviePy v1: c.resize(...)
+        if hasattr(c, "resize"):
+            return c.resize(width=width, height=height)
+
+        # MoviePy v2: with_effects
+        if hasattr(c, "with_effects"):
+            try:
+                from moviepy import vfx as _vfx
+                # Resize effect object (v2)
+                return c.with_effects([_vfx.Resize(width=width, height=height)])
+            except Exception:
+                pass
+
+        raise AttributeError("No resize method available on this MoviePy Clip")
+
+    def _crop_clip(c, *, x1, y1, x2, y2):
+        # MoviePy v1: c.crop(...)
+        if hasattr(c, "crop"):
+            return c.crop(x1=x1, y1=y1, x2=x2, y2=y2)
+
+        # MoviePy v2: with_effects
+        if hasattr(c, "with_effects"):
+            try:
+                from moviepy import vfx as _vfx
+                return c.with_effects([_vfx.Crop(x1=x1, y1=y1, x2=x2, y2=y2)])
+            except Exception:
+                pass
+
+        raise AttributeError("No crop method available on this MoviePy Clip")
+
+    def _crop_to_916(v):
+        w, h = v.size
+        tw, th = TARGET_W, TARGET_H
+        target_ratio = tw / th
+        src_ratio = w / h
+
+        if src_ratio > target_ratio:
+            v = _resize_clip(v, height=th)
+            w2, h2 = v.size
+            x1 = int((w2 - tw) / 2)
+            return _crop_clip(v, x1=x1, y1=0, x2=x1 + tw, y2=th)
+        else:
+            v = _resize_clip(v, width=tw)
+            w2, h2 = v.size
+            y1 = int((h2 - th) / 2)
+            return _crop_clip(v, x1=0, y1=y1, x2=tw, y2=y1 + th)
+
+    def _ffmpeg_burn_srt(
+        inp_mp4: str,
+        srt: str,
+        out_final: str,
+        *,
+        font_size: int = 32,
+        position: str = "Bottom",
+        bgm_path: str | None = None,
+        bgm_vol: float = 0.35,
+    ):
+        # 1) sanitize SRT (sekali saja)
+        srt_clean = _sanitize_srt_for_ass(srt)
+        srt_abs = str(Path(srt_clean).resolve())
+
+        pos = (position or "Bottom").lower()
+        if pos == "center":
+            alignment = 5      # middle-center
+            margin_v = 0
+        elif pos == "dynamic":
+            alignment = 2
+            margin_v = 90      # agak naik sedikit
+        else:
+            # Bottom default
+            alignment = 2      # bottom-center
+            margin_v = 50      # nempel bawah
+
+        # clamp font
+        fs = max(10, min(28, int(font_size)))
+
+        force_style = (
+            f"Fontname=Arial\\,"
+            f"Fontsize={fs}\\,"
+            f"BorderStyle=1\\,"
+            f"Outline=2\\,"
+            f"Shadow=0\\,"
+            f"PrimaryColour=&H00FFFFFF\\,"
+            f"OutlineColour=&H00000000\\,"
+            f"Alignment={alignment}\\,"
+            f"MarginV={margin_v}"
+        )
+
+        vf = f"subtitles='{srt_abs}':force_style='{force_style}'"
+        print("[BURN] Alignment:", alignment, "MarginV:", margin_v, "Font:", fs, flush=True)
+
+        cmd = ["ffmpeg", "-y", "-i", inp_mp4]
+
+        has_bgm = bool(bgm_path and os.path.exists(bgm_path))
+        if has_bgm:
+            cmd += ["-stream_loop", "-1", "-i", bgm_path]  # loop bgm
+
+            # NOTE:
+            # 0:a = audio utama (tts) dari inp_mp4
+            # 1:a = bgm
+            # amix duration=first -> durasi ikut video (input0)
+            # dropout_transition biar halus
+            af = (
+                f"[0:a]volume=1.0[a0];"
+                f"[1:a]volume={float(bgm_vol):.3f}[bgm];"
+                f"[a0][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]"
+            )
+
+            cmd += [
+                "-filter_complex", af,
+                "-vf", vf,
+                "-map", "0:v:0",
+                "-map", "[aout]",
+            ]
+            print("[BGM] mix:", bgm_path, "vol:", bgm_vol, flush=True)
+        else:
+            # no bgm -> keep audio from input0
+            cmd += [
+                "-vf", vf,
+                "-map", "0:v:0",
+                "-map", "0:a:0?",
+            ]
+            print("[BGM] none", flush=True)
+
+        cmd += [
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-b:v", "3000k",
+            "-c:a", "aac",
+            "-b:a", "128k",
+            "-pix_fmt", "yuv420p",
+            "-movflags", "+faststart",
+            out_final
+        ]
+
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if p.returncode != 0:
+            raise RuntimeError("FFmpeg burn subtitles + mix audio gagal:\n" + p.stderr[-2500:])
+
+    import shutil
+
+    AVATAR_ROOT = (REPO_ROOT / "assets" / "avatars").resolve()
+
+    def _run(cmd: list[str]) -> bool:
+        try:
+            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+            return True
+        except Exception:
+            return False
+
+    def _ensure_wav_from_mp3(mp3_path: str, wav_out: Path) -> Path | None:
+        wav_out.parent.mkdir(parents=True, exist_ok=True)
+        ok = _run(["ffmpeg", "-y", "-i", mp3_path, "-ac", "1", "-ar", "48000", str(wav_out)])
+        if ok and wav_out.exists() and wav_out.stat().st_size > 0:
+            return wav_out
+        return None
+
+    def _ensure_rhubarb_cues(wav_in: Path, cues_out: Path) -> Path | None:
+        if shutil.which("rhubarb") is None:
+            print("[AVATAR][WARN] rhubarb not found in PATH -> skip avatar")
+            return None
+        cues_out.parent.mkdir(parents=True, exist_ok=True)
+        ok = _run(["rhubarb", "-r", "phonetic", "-f", "json", "-o", str(cues_out), str(wav_in)])
+        if ok and cues_out.exists() and cues_out.stat().st_size > 0:
+            return cues_out
+        return None
+
+    def _build_avatar_clip(cues_json: Path, avatar_dir: Path, duration: float):
+        base_png = avatar_dir / "char_base_cat.png"
+        if not base_png.exists():
+            print("[AVATAR][WARN] base png missing:", base_png)
+            return None
+
+        base = ImageClip(str(base_png)).with_duration(duration)
+        layers = [base]
+
+        data = json.loads(cues_json.read_text(encoding="utf-8"))
+        cues = data.get("mouthCues", [])
+
+        for cue in cues:
+            v = (cue.get("value") or "X").strip()
+            start = float(cue.get("start", 0))
+            end = float(cue.get("end", start))
+            if end <= start:
+                continue
+            mouth_png = avatar_dir / f"mouth_{v}.png"
+            if mouth_png.exists():
+                layers.append(
+                    ImageClip(str(mouth_png))
+                    .with_start(start)
+                    .with_duration(end - start)
+                )
+
+        return CompositeVideoClip(layers, size=base.size).with_duration(duration)
+
+    def _apply_avatar(final_clip):
+        if not avatar_cfg or not avatar_cfg.get("enabled"):
+            return final_clip
+        if not audio_path or not os.path.exists(audio_path):
+            print("[AVATAR][WARN] audio_path missing -> skip avatar")
+            return final_clip
+
+        avatar_id = str(avatar_cfg.get("id") or "cat_v1").strip()
+        avatar_dir = (AVATAR_ROOT / avatar_id).resolve()
+        if not avatar_dir.exists():
+            print("[AVATAR][WARN] avatar_dir not found:", avatar_dir)
+            return final_clip
+
+        adir = Path(str(assets_dir or "")).resolve() if assets_dir else Path(out_dir).resolve()
+        adir.mkdir(parents=True, exist_ok=True)
+
+        wav_path = _ensure_wav_from_mp3(audio_path, adir / "tts_for_avatar.wav")
+        if not wav_path:
+            print("[AVATAR][WARN] failed create wav -> skip avatar")
+            return final_clip
+
+        cues_json = _ensure_rhubarb_cues(wav_path, adir / "mouth_cues.json")
+        if not cues_json:
+            print("[AVATAR][WARN] failed create mouth cues -> skip avatar")
+            return final_clip
+
+        avatar = _build_avatar_clip(cues_json, avatar_dir, float(final_clip.duration))
+        if avatar is None:
+            return final_clip
+
+        # scale default 0.20 tinggi video
+        scale = float(avatar_cfg.get("scale", 0.20))
+        target_h = max(80, int(final_clip.h * scale))
+        avatar = _resize_clip(avatar, height=target_h)
+
+        mx = int(final_clip.w * 0.02)
+        my = int(final_clip.h * 0.02)
+        pos = str(avatar_cfg.get("position") or "bottom-right").lower()
+
+        if pos in ("bottom-right", "br"):
+            avatar = _pos(avatar, (final_clip.w - avatar.w - mx, final_clip.h - avatar.h - my))
+        elif pos in ("bottom-left", "bl"):
+            avatar = _pos(avatar, (mx, final_clip.h - avatar.h - my))
+        elif pos in ("top-right", "tr"):
+            avatar = _pos(avatar, (final_clip.w - avatar.w - mx, my))
+        else:
+            avatar = _pos(avatar, (mx, my))
+
+        out = CompositeVideoClip([final_clip, avatar], size=TARGET_SIZE)
+        out = _dur(out, float(final_clip.duration))
+        # jaga audio yang sudah dimix (tts+bgm)
+        if final_clip.audio is not None:
+            out = _aud(out, final_clip.audio)
+        print("[AVATAR] applied:", avatar_id)
+        return out
+
+    # --- progress ---
+    def prog(x: int):
+        x = max(0, min(100, int(x)))
+        print(f"PROGRESS: {x}%", flush=True)
+
+    prog(5)
+
+    # --- build per-scene clips ---
+    built_segments = []
+    opened = []  # keep refs to close later
+
+    for idx, sc in enumerate(scenes):
+        dur = float(sc.get("duration") or 0.0)
+        dur = max(0.5, dur)
+
+        clip_path = (sc.get("clip_path") or "").strip()
+        text_overlay = (sc.get("text_overlay") or "").strip() or None
+        kind = (sc.get("kind") or "scene").strip().lower()
+
+        if not clip_path or not os.path.exists(clip_path):
+            # fallback: black screen
+            base = ColorClip(TARGET_SIZE, color=(0, 0, 0)).set_duration(dur)
+        else:
+            v = VideoFileClip(clip_path, audio=False)
+            opened.append(v)
+
+            # trim from start (random start optional bisa Anda tambahkan nanti)
+            vdur = float(getattr(v, "duration", 0.0) or 0.0)
+            if vdur > dur + 0.1:
+                base = _sub(v, 0, dur)
+            else:
+                # if clip shorter, loop by concatenation
+                reps = max(1, int(math.ceil(dur / max(0.01, vdur))))
+                parts = []
+                one = min(vdur, dur)
+                for _ in range(reps):
+                    parts.append(_sub(v, 0, one))
+                tmp = concatenate_videoclips(parts, method="compose")
+                base = _sub(tmp, 0, dur)
+
+            base = _dur(_crop_to_916(base), dur)
+
+        # overlay hook/cta text png (reuse your existing overlay renderers if available)
+        overlays = [base]
+
+        # =========================
+        # ✅ HOOK overlay (random dari template_bank.json)
+        # =========================
+        if kind == "hook":
+            try:
+                hook_title, hook_sub = _pick_pair(
+                    rng,
+                    bank.get("hook_templates", []),
+                    fallback=("TAHUKAH KAMU?", "FAKTA CEPAT"),
+                )
+
+                if hook_subtitle:
+                    hook_sub = hook_subtitle
+
+                hook_png = os.path.join(overlay_dir, f"hook_impact_{Path(out_mp4).stem}_{idx:02d}.png")
+                render_impact_hook_overlay(hook_png, TARGET_W, TARGET_H, title=hook_title, subtitle=hook_sub)
+                _shift_png_y(hook_png, dy=-120)
+
+                ov = rgba_clip(hook_png, dur)
+                print("OV SIZE:", getattr(ov, "w", None), getattr(ov, "h", None), "TARGET:", TARGET_W, TARGET_H)
+
+                if hasattr(ov, "with_duration"):
+                    ov = ov.with_duration(dur)
+
+                HOOK_Y = 100  # makin kecil = makin naik
+                ov = ov.with_position(("center", HOOK_Y))
+
+                overlays.append(ov)
+                print(f"[AUTO-STOCK] HOOK from bank: {hook_title} | {hook_sub}")
+
+            except Exception as e:
+                print(f"[AUTO-STOCK][WARN] hook overlay FAIL: {e}")
+
+
+        # Scene CTA/hook custom overlay text from manifest (optional)
+        if text_overlay:
+            # =========================
+            # ✅ CTA overlay (random dari template_bank.json)
+            # =========================
+            if kind == "cta":
+                try:
+                    cta_main, cta_sub = _pick_pair(
+                        rng,
+                        bank.get("cta_templates", []),
+                        fallback=("LIKE KALO BARU TAU!", "SAVE BIAR GAK LUPA"),
+                    )
+
+                    cta_png = os.path.join(overlay_dir, f"cta_{Path(out_mp4).stem}_{idx:02d}.png")
+                    render_cta_overlay(cta_png, TARGET_W, TARGET_H, cta_main, cta_sub)
+                    _shift_png_y(cta_png, dy=-120)
+
+                    ov = rgba_clip(cta_png, dur)
+                    print("OV SIZE:", getattr(ov, "w", None), getattr(ov, "h", None), "TARGET:", TARGET_W, TARGET_H)
+
+                    if hasattr(ov, "with_duration"):
+                        ov = ov.with_duration(dur)
+
+                    CTA_Y = 100  # makin kecil = makin naik
+                    ov = ov.with_position(("center", CTA_Y))
+
+                    overlays.append(ov)
+                    print(f"[AUTO-STOCK] CTA from bank: {cta_main} | {cta_sub}")
+
+                except Exception as e:
+                    print(f"[AUTO-STOCK][WARN] cta overlay FAIL: {e}")
+
+
+        seg = _dur(CompositeVideoClip(overlays, size=TARGET_SIZE), dur)
+        built_segments.append(seg)
+
+        # free some RAM progressively
+        gc.collect()
+        prog(5 + int((idx + 1) * 45 / max(1, len(scenes))))  # up to ~50%
+
+    prog(55)
+
+    # --- concat segments ---
+    try:
+        # use your helper if exists (from your snippet)
+        final = _concat_with_crossfade(built_segments, fade_dur=0.25)
+    except Exception:
+        final = concatenate_videoclips(built_segments, method="compose")
+
+    prog(65)
+
+    # --- audio attach (tts final) ---
+    # --- audio attach (tts final) ---
+    if audio_path and os.path.exists(audio_path):
+        audio_path = _pad_audio_ffmpeg(audio_path, pad_sec=0.15)  # kecil saja untuk rounding mp3
+
+        a0 = AudioFileClip(audio_path)
+        opened.append(a0)
+
+        final_dur = float(getattr(final, "duration", 0.0) or 0.0)
+        a_dur = float(getattr(a0, "duration", 0.0) or 0.0)
+        print(f"[DUR] video_final={final_dur:.3f}s audio_raw={a_dur:.3f}s")
+
+        # 1) kalau audio lebih panjang -> panjangkan video (kode kamu boleh tetap)
+        if a_dur > final_dur + 0.02:
+            pad = a_dur - final_dur
+            print(f"[DUR] pad_video_tail={pad:.3f}s")
+            t_freeze = max(0.0, final_dur - (1.0 / float(FPS)))
+            frame = final.get_frame(t_freeze)
+            tail = ImageClip(frame)
+            tail = tail.with_duration(pad) if hasattr(tail, "with_duration") else tail.set_duration(pad)
+            final = concatenate_videoclips([final, tail], method="compose")
+            final_dur = float(getattr(final, "duration", 0.0) or 0.0)
+
+        # 2) ✅ kalau video lebih panjang -> trim video ke audio (plus buffer kecil)
+        if final_dur > a_dur + 0.05:
+            cut = max(0.1, a_dur)  # atau a_dur + 0.10 kalau mau CTA tail sedikit
+            print(f"[DUR] trim_video_to_audio={cut:.3f}s")
+            final = _sub(final, 0, cut)   # helper _sub kamu sudah ada di function
+            final = _dur(final, cut)
+            final_dur = cut
+
+        # 3) attach audio (dipotong pas video)
+        a = _sub_audio(a0, 0, final_dur)
+        final = _aud(final, a)
+    prog(70)
+
+    # =========================
+    # ✅ BGM MIX (SETELAH TTS)
+    # =========================
+    from moviepy import AudioFileClip, CompositeAudioClip
+    import moviepy.audio.fx as afx
+
+    #bgm_dir = Path(project_root) / "assets" / "bgm"
+    bgm_dir = _get_bgm_dir()
+    bgm_files = sorted([p for p in bgm_dir.glob("*.mp3") if p.is_file()]) if bgm_dir.exists() else []
+
+    if not bgm_enabled:
+        print("[AUTO-STOCK] bgm: disabled")
+    elif bgm_files:
+        bgm_path = str(rng.choice(bgm_files))
+        vol = max(0.0, min(1.0, float(bgm_volume)))
+
+        print("[AUTO-STOCK] bgm:", bgm_path, " vol:", vol)
+
+        dur = float(final.duration)
+
+        bgm = AudioFileClip(bgm_path)
+        opened.append(bgm)
+
+        # ✅ loop reliable di v2: pakai AudioLoop effect + kunci duration
+        bgm_loop = (
+            bgm.with_effects([afx.AudioLoop(duration=dur)])
+               .with_start(0)
+               .with_duration(dur)
+               .with_volume_scaled(vol)
+        )
+
+        dur = float(final.duration)
+
+        if final.audio is not None:
+            tts = final.audio.with_start(0)
+
+            # ✅ jangan with_duration() pada AudioFileClip; pad pakai silence
+            tts = _pad_audio_to_duration(tts, dur)
+
+            # volume tts (pakai helper kamu biar kompatibel v1/v2)
+            tts = _vol(tts, 1.0)
+
+            mixed = CompositeAudioClip([tts, bgm_loop]).with_duration(dur)
+            final = final.with_audio(mixed)
+            print("[AUTO-STOCK] mix audio: TTS+BGM")
+        else:
+            final = final.with_audio(bgm_loop)
+            print("[AUTO-STOCK] mix audio: BGM only")
+
+        # debug penting
+        print("[AUTO-STOCK] final.audio:", "YES" if final.audio else "NO",
+              "dur:", getattr(final.audio, "duration", None))
+    else:
+        print("[AUTO-STOCK] bgm: none (assets/bgm kosong)")
+
+
+    prog(78)
+
+    # --- watermark (reuse your render_watermark + rgba_clip) ---
+    wm_txt = (watermark_text or "").strip()
+    print("[AUTO-STOCK] watermark:", repr(wm_txt), "opacity:", watermark_opacity, "pos:", watermark_position, flush=True)
+
+    if wm_txt:
+        try:
+            wm_png = os.path.join(overlay_dir, f"wm_{Path(out_mp4).stem}.png")
+            wm_png = render_watermark(
+                wm_png, TARGET_W, TARGET_H,
+                text=wm_txt,
+                opacity=int(watermark_opacity),
+                position=str(watermark_position),
+            )
+            print("[AUTO-STOCK] wm_png:", wm_png, "exists:", os.path.exists(wm_png) if wm_png else None, flush=True)
+
+            if wm_png and os.path.exists(wm_png) and os.path.getsize(wm_png) > 0:
+                try:
+                    wm = rgba_clip(wm_png, float(final.duration))
+                except Exception:
+                    wm = ImageClip(wm_png)
+                    wm = _dur(wm, float(final.duration))  # pakai helper dur kamu
+                final = CompositeVideoClip([final, wm], size=TARGET_SIZE)
+                final = _dur(final, float(final.duration))
+            else:
+                print("[AUTO-STOCK][WARN] wm png invalid/empty", flush=True)
+        except Exception as e:
+            print("[AUTO-STOCK][WARN] watermark overlay FAIL:", e, flush=True)
+
+    prog(82)
+
+    print(f"[DUR] video_final={float(final.duration):.3f}s")
+
+    prog(88)
+
+    final = _apply_avatar(final)
+
+
+    # --- write base mp4 ---
+    tmp_base = os.path.join(out_dir, f".tmp_{Path(out_mp4).stem}_base.mp4")
+    try:
+        final.write_videofile(
+            tmp_base,
+            fps=FPS,
+            codec="libx264",
+            audio_codec="aac",
+            preset="ultrafast",
+            bitrate="3000k",
+            audio_bitrate="128k",
+            threads=2,
+            ffmpeg_params=["-pix_fmt","yuv420p","-movflags","+faststart"],
+        )
+    except TypeError:
+        # fallback kalau signature MoviePy beda
+        final.write_videofile(
+            tmp_base,
+            fps=FPS,
+            codec="libx264",
+            audio_codec="aac",
+            preset="ultrafast",
+            bitrate="3000k",
+            audio_bitrate="128k",
+            threads=2,
+            ffmpeg_params=["-pix_fmt","yuv420p","-movflags","+faststart"],
+            verbose=False,        # ✅ v1 style
+        )
+
+    prog(94)
+
+    # --- burn captions if any ---
+    if captions_srt and os.path.exists(captions_srt):
+        tmp_final = out_mp4
+        print("[AUTO-STOCK] burn captions font_size:", caption_font_size, "pos:", caption_position, flush=True)
+        _ffmpeg_burn_srt(tmp_base, captions_srt, out_mp4, font_size=caption_font_size, position=caption_position)
+        try:
+            os.remove(tmp_base)
+        except Exception:
+            pass
+    else:
+        # no subtitles -> just move tmp_base to out_mp4
+        try:
+            if os.path.exists(out_mp4):
+                os.remove(out_mp4)
+        except Exception:
+            pass
+        os.replace(tmp_base, out_mp4)
+
+    prog(100)
+
+    # cleanup
+    try:
+        final.close()
+    except Exception:
+        pass
+    for c in opened:
+        _safe_close(c)
+    for seg in built_segments:
+        _safe_close(seg)
+    gc.collect()
+
+    return out_mp4

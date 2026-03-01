@@ -1,0 +1,6 @@
+file '/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_145204/tts_parts/line_000.wav'
+file '/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_145204/tts_parts/line_001.wav'
+file '/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_145204/tts_parts/line_002.wav'
+file '/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_145204/tts_parts/line_003.wav'
+file '/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_145204/tts_parts/line_004.wav'
+file '/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_145204/tts_parts/line_005.wav'

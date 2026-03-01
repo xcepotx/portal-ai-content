@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Rotasi ban biar aus merata",
+  "hook": "Ban cepat habis sebelah? Bisa dicegah!",
+  "cta": "Terakhir rotasi ban kapan?",
+  "query": "",
+  "bg": {
+    "query": "car tire rotation service realistic photo",
+    "variants": [
+      "tire rotation garage",
+      "mechanic rotating tires"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

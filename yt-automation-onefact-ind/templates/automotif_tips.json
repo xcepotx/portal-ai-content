@@ -1,0 +1,486 @@
+{
+  "title": "Tips Otomotif",
+  "seconds": 30,
+  "facts": [
+    {
+      "title": "Cek tekanan ban secara rutin",
+      "hook": "Ban terlihat normal, tapi bisa bikin boros!",
+      "fact": "Tekanan ban yang tepat bikin mobil lebih irit, nyaman, dan aman.",
+      "lines": [
+        "Ban kurang angin menambah hambatan gulir.",
+        "Ban terlalu keras mengurangi grip saat hujan.",
+        "Cek minimal 2 minggu sekali saat ban dingin."
+      ],
+      "cta": "Kapan terakhir kamu cek tekanan ban?",
+      "bg": {
+        "query": "checking car tire pressure realistic photo",
+        "variants": ["tire pressure gauge close up", "car tire pressure check"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Periksa kedalaman tapak ban",
+      "hook": "Tapak ban tipis itu bahaya banget!",
+      "fact": "Tapak ban yang aman mengurangi risiko aquaplaning dan memperpendek jarak pengereman.",
+      "lines": [
+        "Ban botak mudah selip saat hujan.",
+        "Cek indikator TWI di ban.",
+        "Kalau sudah sejajar TWI, waktunya ganti."
+      ],
+      "cta": "Ban kamu masih tebal atau sudah mepet TWI?",
+      "bg": {
+        "query": "tire tread wear indicator TWI close up realistic photo",
+        "variants": ["tire tread depth close up", "worn tire tread indicator"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Rotasi ban biar aus merata",
+      "hook": "Ban cepat habis sebelah? Bisa dicegah!",
+      "fact": "Rotasi ban membuat keausan lebih merata dan memperpanjang umur ban.",
+      "lines": [
+        "Ban depan biasanya lebih cepat aus.",
+        "Rotasi tiap 8.000–10.000 km.",
+        "Sekalian cek balancing dan alignment."
+      ],
+      "cta": "Terakhir rotasi ban kapan?",
+      "bg": {
+        "query": "car tire rotation service realistic photo",
+        "variants": ["tire rotation garage", "mechanic rotating tires"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Jangan tunggu bensin hampir habis",
+      "hook": "Sering nunggu lampu bensin nyala?",
+      "fact": "Bensin yang terlalu rendah bisa membuat pompa bensin cepat panas dan memperpendek umurnya.",
+      "lines": [
+        "Pompa bensin terendam BBM untuk pendinginan.",
+        "Tangki hampir kosong meningkatkan risiko kotoran tersedot.",
+        "Isi sebelum indikator terlalu rendah."
+      ],
+      "cta": "Kamu tim isi sebelum habis atau nunggu warning?",
+      "bg": {
+        "query": "low fuel warning light car dashboard realistic photo",
+        "variants": ["fuel gauge low", "car dashboard fuel light"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Gunakan oli sesuai spesifikasi",
+      "hook": "Oli bukan cuma soal merek!",
+      "fact": "Viskositas dan standar oli yang tepat menjaga pelumasan optimal dan mencegah keausan.",
+      "lines": [
+        "Terlalu kental bisa berat saat start dingin.",
+        "Terlalu encer kurang proteksi saat panas.",
+        "Ikuti rekomendasi manual pabrikan."
+      ],
+      "cta": "Oli mobil kamu sudah sesuai spek?",
+      "bg": {
+        "query": "engine oil bottles viscosity label realistic photo",
+        "variants": ["5w30 engine oil", "engine oil viscosity label"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Cek level oli lewat dipstick",
+      "hook": "Cuma 10 detik, tapi penting!",
+      "fact": "Level oli yang ideal mencegah mesin kekurangan pelumasan dan overheat.",
+      "lines": [
+        "Cek saat mesin mati dan mobil rata.",
+        "Oli harus di antara MIN dan MAX.",
+        "Kalau cepat berkurang, cek kebocoran."
+      ],
+      "cta": "Kapan terakhir cek dipstick?",
+      "bg": {
+        "query": "checking engine oil dipstick close up realistic photo",
+        "variants": ["engine oil dipstick check", "car oil level dipstick"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Jangan overfill oli mesin",
+      "hook": "Kebanyakan oli juga bahaya!",
+      "fact": "Oli berlebihan bisa berbusa dan meningkatkan tekanan crankcase, bikin seal bocor.",
+      "lines": [
+        "Oli berbusa melumasi lebih buruk.",
+        "Tekanan berlebih bisa merusak seal.",
+        "Isi sesuai batas MAX dipstick."
+      ],
+      "cta": "Pernah isi oli sampai lewat MAX?",
+      "bg": {
+        "query": "engine oil overfill dipstick close up realistic photo",
+        "variants": ["oil level too high dipstick", "overfilled engine oil"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Ganti filter oli tiap ganti oli",
+      "hook": "Ganti oli tanpa filter? Sayang!",
+      "fact": "Filter oli menyaring kotoran; kalau dibiarkan, sirkulasi oli jadi tidak bersih.",
+      "lines": [
+        "Filter lama menyimpan endapan.",
+        "Oli baru cepat kotor lagi.",
+        "Idealnya ganti filter tiap ganti oli."
+      ],
+      "cta": "Filter oli kamu ikut diganti?",
+      "bg": {
+        "query": "car oil filter replacement realistic photo",
+        "variants": ["engine oil filter close up", "mechanic changing oil filter"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Cek filter udara mesin",
+      "hook": "Tarikan berat bisa dari filter udara!",
+      "fact": "Filter udara bersih membuat pembakaran lebih efisien dan tenaga lebih responsif.",
+      "lines": [
+        "Filter kotor menghambat udara.",
+        "BBM bisa jadi lebih boros.",
+        "Cek dan bersihkan sesuai kondisi jalan."
+      ],
+      "cta": "Filter udara kamu terakhir dicek kapan?",
+      "bg": {
+        "query": "dirty car engine air filter realistic photo",
+        "variants": ["engine air filter inspection", "clogged air filter close up"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Ganti cabin filter biar AC lega",
+      "hook": "AC dingin tapi anginnya kecil?",
+      "fact": "Cabin filter yang bersih meningkatkan airflow dan mengurangi bau di kabin.",
+      "lines": [
+        "Filter kabin kotor bikin angin lemah.",
+        "Bisa memicu bau apek.",
+        "Ganti tiap 10.000–15.000 km."
+      ],
+      "cta": "Kabin mobil kamu pernah bau?",
+      "bg": {
+        "query": "car cabin air filter replacement realistic photo",
+        "variants": ["dirty cabin filter", "cabin filter change"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Flush coolant sesuai jadwal",
+      "hook": "Coolant bukan isi sekali buat selamanya!",
+      "fact": "Coolant lama kehilangan kemampuan anti-karat dan pendinginan.",
+      "lines": [
+        "Coolant tua bisa membentuk endapan.",
+        "Radiator lebih mudah berkarat.",
+        "Ikuti interval flush dari pabrikan."
+      ],
+      "cta": "Coolant kamu terakhir diganti kapan?",
+      "bg": {
+        "query": "car coolant flush service realistic photo",
+        "variants": ["radiator coolant drain", "coolant replacement"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Jaga radiator fin tetap bersih",
+      "hook": "Overheat bisa karena radiator kotor!",
+      "fact": "Sirip radiator yang tersumbat debu/serangga menghambat aliran udara dan pelepasan panas.",
+      "lines": [
+        "Airflow berkurang drastis.",
+        "Suhu naik saat macet.",
+        "Bersihkan dengan semprotan lembut."
+      ],
+      "cta": "Pernah lihat radiator fin mobil kamu?",
+      "bg": {
+        "query": "dirty radiator fins bugs close up realistic photo",
+        "variants": ["radiator fins cleaning", "car radiator front dirt"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Perhatikan kipas radiator",
+      "hook": "Suhu naik saat macet? Cek kipas!",
+      "fact": "Kipas radiator membantu pendinginan saat mobil berhenti atau pelan.",
+      "lines": [
+        "Tanpa kipas, suhu cepat naik.",
+        "Cek motor kipas dan relay.",
+        "Pastikan kipas nyala saat suhu tinggi."
+      ],
+      "cta": "Kipas radiator kamu normal?",
+      "bg": {
+        "query": "car radiator cooling fan realistic photo",
+        "variants": ["radiator fan motor", "engine cooling fan"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Cek selang dan klem radiator",
+      "hook": "Selang retak bisa bikin mogok mendadak!",
+      "fact": "Selang yang getas bisa bocor tiba-tiba dan memicu overheat.",
+      "lines": [
+        "Periksa retak, benjol, atau lembek.",
+        "Cek klem jangan sampai longgar.",
+        "Ganti kalau sudah tua."
+      ],
+      "cta": "Selang radiator kamu pernah dicek?",
+      "bg": {
+        "query": "car coolant hose inspection realistic photo",
+        "variants": ["radiator hose crack", "engine bay hose check"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Pakai engine brake di turunan",
+      "hook": "Turunan panjang jangan cuma rem!",
+      "fact": "Engine brake mengurangi panas rem dan mencegah brake fade.",
+      "lines": [
+        "Turunkan gigi secara bertahap.",
+        "Rem jadi tidak cepat panas.",
+        "Lebih aman dan kontrol lebih stabil."
+      ],
+      "cta": "Kalau turunan, kamu pakai engine brake?",
+      "bg": {
+        "query": "car downhill driving engine braking realistic photo",
+        "variants": ["mountain road car braking", "downhill road driving"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Cek ketebalan kampas rem",
+      "hook": "Rem bunyi itu tanda bahaya!",
+      "fact": "Kampas rem tipis memperpanjang jarak pengereman dan bisa merusak cakram.",
+      "lines": [
+        "Cek ketebalan kampas secara visual.",
+        "Jangan tunggu sampai besi ketemu besi.",
+        "Ganti sebelum terlalu tipis."
+      ],
+      "cta": "Kampas rem kamu masih tebal?",
+      "bg": {
+        "query": "car brake pads inspection close up realistic photo",
+        "variants": ["brake pad wear", "brake caliper inspection"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Jangan semprot rem panas dengan air",
+      "hook": "Habis ngerem panas lalu kena air? Bahaya!",
+      "fact": "Perubahan suhu ekstrem bisa membuat cakram melengkung dan rem bergetar.",
+      "lines": [
+        "Cakram panas rentan deformasi.",
+        "Bisa muncul getar saat pengereman.",
+        "Biarkan rem dingin dulu."
+      ],
+      "cta": "Pernah ngerasa rem bergetar?",
+      "bg": {
+        "query": "hot brake disc close up realistic photo",
+        "variants": ["brake rotor heat", "brake disc close up"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Periksa aki dan terminalnya",
+      "hook": "Starter lemah sering dari terminal kotor!",
+      "fact": "Terminal aki berkarat membuat arus listrik tidak maksimal.",
+      "lines": [
+        "Korosi meningkatkan hambatan listrik.",
+        "Bisa bikin susah starter.",
+        "Bersihkan terminal secara berkala."
+      ],
+      "cta": "Terminal aki kamu bersih?",
+      "bg": {
+        "query": "car battery terminal corrosion realistic photo",
+        "variants": ["battery terminal cleaning", "corroded battery terminal"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Matikan beban listrik sebelum start",
+      "hook": "Start mesin jangan sambil AC nyala!",
+      "fact": "Mematikan beban listrik saat start mengurangi kerja aki dan motor starter.",
+      "lines": [
+        "AC dan lampu menarik arus besar.",
+        "Start jadi lebih ringan.",
+        "Aki lebih awet."
+      ],
+      "cta": "Kamu biasa start dengan AC mati?",
+      "bg": {
+        "query": "car dashboard AC off before start realistic photo",
+        "variants": ["car ignition start", "car dashboard controls"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Jangan biarkan mobil lama parkir tanpa jalan",
+      "hook": "Mobil diam lama bisa bikin masalah!",
+      "fact": "Mobil yang lama tidak dipakai berisiko aki tekor, ban flat spot, dan oli turun.",
+      "lines": [
+        "Aki bisa drop perlahan.",
+        "Ban bisa rata di satu sisi.",
+        "Jalankan mobil rutin 1–2 minggu sekali."
+      ],
+      "cta": "Mobil kamu sering nganggur?",
+      "bg": {
+        "query": "car parked long time driveway realistic photo",
+        "variants": ["car stored outside", "parked car dust"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Panaskan mobil secukupnya saja",
+      "hook": "Panaskan lama-lama itu mitos!",
+      "fact": "Mobil modern cukup dipanaskan sebentar agar oli bersirkulasi, lalu jalan pelan.",
+      "lines": [
+        "Idle terlalu lama buang bensin.",
+        "Lebih baik jalan pelan 1–2 menit.",
+        "Mesin cepat mencapai suhu kerja."
+      ],
+      "cta": "Kamu masih panasin 10 menit?",
+      "bg": {
+        "query": "car engine warm up idle realistic photo",
+        "variants": ["engine idle warm up", "car start morning"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Cek wiper dan air washer",
+      "hook": "Hujan deras tapi kaca blur? Bahaya!",
+      "fact": "Wiper bagus dan washer cukup membuat visibilitas aman saat hujan.",
+      "lines": [
+        "Karet wiper getas bikin streak.",
+        "Air washer kotor bikin noda.",
+        "Ganti wiper minimal setahun sekali."
+      ],
+      "cta": "Wiper kamu masih bersih sapuannya?",
+      "bg": {
+        "query": "car windshield wiper and washer fluid realistic photo",
+        "variants": ["windshield wiper close up", "washer fluid refill"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Jaga kaca film jangan terlalu gelap",
+      "hook": "Kaca film gelap banget bikin bahaya malam!",
+      "fact": "Kaca film terlalu gelap menurunkan visibilitas dan meningkatkan risiko blind spot.",
+      "lines": [
+        "Pandangan samping jadi terbatas.",
+        "Malam hari lebih susah lihat pejalan kaki.",
+        "Sesuaikan dengan aturan dan kebutuhan."
+      ],
+      "cta": "Kaca film kamu berapa persen?",
+      "bg": {
+        "query": "night driving car interior dark tint realistic photo",
+        "variants": ["car window tint dark", "night driving visibility"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Cek lampu-lampu sebelum perjalanan",
+      "hook": "Lampu mati itu undangan kecelakaan!",
+      "fact": "Lampu yang berfungsi normal membantu kamu terlihat dan melihat lebih jelas.",
+      "lines": [
+        "Cek lampu rem, sein, dan hazard.",
+        "Lampu redup bisa karena soket kotor.",
+        "Ganti bohlam sebelum putus total."
+      ],
+      "cta": "Lampu rem kamu sudah dicek?",
+      "bg": {
+        "query": "car lights inspection brake light turn signal realistic photo",
+        "variants": ["car brake light check", "turn signal light check"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Lakukan balancing kalau setir bergetar",
+      "hook": "Setir getar di 80–100 km/jam?",
+      "fact": "Balancing roda yang tepat mengurangi getaran dan membuat ban lebih awet.",
+      "lines": [
+        "Getaran sering muncul di kecepatan tertentu.",
+        "Balancing memperbaiki distribusi berat roda.",
+        "Sekalian cek velg peyang."
+      ],
+      "cta": "Setir mobil kamu pernah getar?",
+      "bg": {
+        "query": "wheel balancing machine garage realistic photo",
+        "variants": ["tire balancing service", "wheel balancer close up"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Cek alignment kalau mobil narik",
+      "hook": "Mobil narik ke kiri/kanan? Jangan diabaikan!",
+      "fact": "Alignment yang benar membuat handling stabil dan ban tidak cepat habis.",
+      "lines": [
+        "Mobil narik tanda toe/camber tidak pas.",
+        "Ban aus jadi tidak merata.",
+        "Cek setelah kena lubang keras."
+      ],
+      "cta": "Mobil kamu pernah narik ke satu sisi?",
+      "bg": {
+        "query": "car wheel alignment service realistic photo",
+        "variants": ["alignment machine", "mechanic wheel alignment"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Bersihkan interior untuk cegah jamur",
+      "hook": "Kabin lembap bikin bau dan jamur!",
+      "fact": "Menjaga kabin kering dan bersih membantu mencegah jamur serta bau apek.",
+      "lines": [
+        "Karpet basah memicu jamur.",
+        "Bau apek bikin tidak nyaman.",
+        "Jemur dan vacuum secara rutin."
+      ],
+      "cta": "Kabin mobil kamu pernah bau apek?",
+      "bg": {
+        "query": "car interior cleaning vacuum realistic photo",
+        "variants": ["car interior detailing", "vacuum car seats"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Cuci kolong mobil setelah hujan/banjir",
+      "hook": "Karat sering mulai dari bawah!",
+      "fact": "Membersihkan kolong mengurangi penumpukan lumpur dan memperlambat karat.",
+      "lines": [
+        "Lumpur menahan kelembapan.",
+        "Garam jalan mempercepat korosi.",
+        "Semprot kolong dengan tekanan sedang."
+      ],
+      "cta": "Kapan terakhir cuci kolong?",
+      "bg": {
+        "query": "car undercarriage wash realistic photo",
+        "variants": ["undercarriage cleaning", "car wash underbody"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Gunakan torque yang benar saat pasang roda",
+      "hook": "Baut roda terlalu kencang bisa bahaya!",
+      "fact": "Torsi baut roda yang tepat mencegah cakram melengkung dan baut rusak.",
+      "lines": [
+        "Terlalu kencang bisa merusak ulir.",
+        "Tidak rata bisa bikin getar saat rem.",
+        "Pakai torque wrench kalau bisa."
+      ],
+      "cta": "Kamu pasang roda pakai torque wrench?",
+      "bg": {
+        "query": "torque wrench tightening lug nuts realistic photo",
+        "variants": ["lug nut torque wrench", "wheel bolts tightening"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Baca indikator di dashboard, jangan diabaikan",
+      "hook": "Lampu indikator itu bukan hiasan!",
+      "fact": "Indikator di dashboard memberi peringatan dini sebelum kerusakan makin mahal.",
+      "lines": [
+        "Jangan tutup lampu check engine dengan tape.",
+        "Scan OBD bisa bantu diagnosis awal.",
+        "Semakin cepat ditangani, semakin murah."
+      ],
+      "cta": "Kalau check engine nyala, kamu ngapain?",
+      "bg": {
+        "query": "car dashboard warning lights check engine realistic photo",
+        "variants": ["check engine light on", "dashboard warning lights"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    }
+  ]
+}

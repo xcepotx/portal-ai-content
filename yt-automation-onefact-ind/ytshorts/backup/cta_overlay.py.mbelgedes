@@ -1,0 +1,188 @@
+# ytshorts/cta_overlay.py
+from __future__ import annotations
+
+import os
+from typing import Tuple, List, Optional
+
+from PIL import Image, ImageDraw, ImageFont
+
+
+def _font(size: int, font_path: Optional[str] = None) -> ImageFont.FreeTypeFont:
+    try:
+        if font_path and os.path.exists(font_path):
+            return ImageFont.truetype(font_path, size)
+        return ImageFont.truetype("DejaVuSans.ttf", size)
+    except Exception:
+        return ImageFont.load_default()
+
+
+def _rounded_rect(draw: ImageDraw.ImageDraw, xy: Tuple[int, int, int, int], r: int, fill):
+    x1, y1, x2, y2 = xy
+    draw.rounded_rectangle([x1, y1, x2, y2], radius=r, fill=fill)
+
+
+def _stroke_text(
+    draw: ImageDraw.ImageDraw,
+    pos: Tuple[int, int],
+    text: str,
+    font: ImageFont.ImageFont,
+    fill=(255, 255, 255, 255),
+    stroke: int = 6,
+    stroke_fill=(0, 0, 0, 220),
+):
+    x, y = pos
+    # manual stroke biar konsisten & tidak “blur”
+    for dx in range(-stroke, stroke + 1):
+        for dy in range(-stroke, stroke + 1):
+            if dx == 0 and dy == 0:
+                continue
+            draw.text((x + dx, y + dy), text, font=font, fill=stroke_fill)
+    draw.text((x, y), text, font=font, fill=fill)
+
+
+def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_w: int) -> List[str]:
+    """
+    Wrap by words to fit max_w.
+    """
+    text = " ".join((text or "").strip().split())
+    if not text:
+        return [""]
+
+    words = text.split(" ")
+    lines: List[str] = []
+    cur: List[str] = []
+
+    for w in words:
+        test = (" ".join(cur + [w])).strip()
+        bw = draw.textbbox((0, 0), test, font=font)
+        tw = bw[2] - bw[0]
+        if tw <= max_w:
+            cur.append(w)
+        else:
+            if cur:
+                lines.append(" ".join(cur))
+                cur = [w]
+            else:
+                # word terlalu panjang, paksa masuk
+                lines.append(w)
+                cur = []
+
+    if cur:
+        lines.append(" ".join(cur))
+
+    return lines
+
+
+def _fit_text_to_box(
+    text: str,
+    box_w: int,
+    box_h: int,
+    font_path: Optional[str],
+    max_font: int,
+    min_font: int,
+    line_gap: int,
+) -> Tuple[ImageFont.ImageFont, List[str], int]:
+    """
+    Cari font size terbesar yang muat (wrap + tinggi) dalam box.
+    Return: (font, wrapped_lines, line_height)
+    """
+    # Dummy image untuk measure
+    im = Image.new("RGBA", (10, 10), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(im)
+
+    for fs in range(max_font, min_font - 1, -1):
+        font = _font(fs, font_path=font_path)
+        lines = _wrap_text(draw, text, font, max_w=box_w)
+
+        # hitung tinggi total
+        bbox = draw.textbbox((0, 0), "Ag", font=font)
+        line_h = (bbox[3] - bbox[1])
+        total_h = len(lines) * line_h + (len(lines) - 1) * line_gap
+
+        if total_h <= box_h:
+            return font, lines, line_h
+
+    # fallback paksa
+    font = _font(min_font, font_path=font_path)
+    lines = _wrap_text(draw, text, font, max_w=box_w)
+    bbox = draw.textbbox((0, 0), "Ag", font=font)
+    line_h = (bbox[3] - bbox[1])
+    return font, lines, line_h
+
+
+def render_cta_overlay(
+    text: str,
+    out_path: str,
+    W: int = 720,
+    H: int = 1280,
+    # posisi CTA dibuat lebih naik (mirip “kemarin”)
+    bottom_margin: int = 190,     # makin besar => makin naik
+    box_h: int = 170,
+    side_margin: int = 56,
+    pad_x: int = 26,
+    pad_y: int = 18,
+    radius: int = 28,
+    # style mirip hook overlay
+    box_fill=(0, 0, 0, 170),
+    text_fill=(255, 255, 255, 255),
+    stroke_fill=(0, 0, 0, 220),
+    stroke: int = 6,
+    # auto-fit
+    max_font: int = 44,
+    min_font: int = 26,
+    line_gap: int = 6,
+    font_path: Optional[str] = None,
+) -> str:
+    """
+    CTA overlay PNG transparan:
+    - 1 box rounded
+    - text auto-fit (wrap + font shrink)
+    - stroke sama seperti hook
+    """
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+
+    x1 = side_margin
+    x2 = W - side_margin
+    y2 = H - bottom_margin
+    y1 = y2 - box_h
+    box_xy = (x1, y1, x2, y2)
+
+    _rounded_rect(draw, box_xy, r=radius, fill=box_fill)
+
+    inner_w = (x2 - x1) - pad_x * 2
+    inner_h = (y2 - y1) - pad_y * 2
+
+    font, lines, line_h = _fit_text_to_box(
+        text=text,
+        box_w=inner_w,
+        box_h=inner_h,
+        font_path=font_path,
+        max_font=max_font,
+        min_font=min_font,
+        line_gap=line_gap,
+    )
+
+    total_h = len(lines) * line_h + (len(lines) - 1) * line_gap
+    start_y = y1 + pad_y + max(0, (inner_h - total_h) // 2)
+
+    # center align per line
+    for i, ln in enumerate(lines):
+        bw = draw.textbbox((0, 0), ln, font=font)
+        tw = bw[2] - bw[0]
+        tx = x1 + pad_x + max(0, (inner_w - tw) // 2)
+        ty = start_y + i * (line_h + line_gap)
+
+        _stroke_text(
+            draw,
+            (tx, ty),
+            ln,
+            font=font,
+            fill=text_fill,
+            stroke=stroke,
+            stroke_fill=stroke_fill,
+        )
+
+    img.save(out_path)
+    return out_path

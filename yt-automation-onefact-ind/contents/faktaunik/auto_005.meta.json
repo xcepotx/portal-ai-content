@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Petir lebih panas dari permukaan Matahari",
+  "hook": "Petir itu panasnya keterlaluan!",
+  "cta": "Kamu pernah lihat petir dekat banget?",
+  "query": "",
+  "bg": {
+    "query": "lightning storm night realistic photo",
+    "variants": [
+      "thunderstorm lightning",
+      "lightning strike"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

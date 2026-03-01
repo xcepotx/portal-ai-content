@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Ada gua dengan kristal raksasa",
+  "hook": "Kristalnya segede tiang!",
+  "cta": "Kalau ada tur ke sana, kamu ikut?",
+  "query": "",
+  "bg": {
+    "query": "giant crystal cave realistic photo",
+    "variants": [
+      "crystal cavern",
+      "large crystals cave"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

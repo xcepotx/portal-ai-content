@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Ada “laut” di bawah tanah",
+  "hook": "Bawah tanah ada laut?!",
+  "cta": "Kalau ada wisata gua, kamu ikut?",
+  "query": "",
+  "bg": {
+    "query": "underground cave river realistic photo",
+    "variants": [
+      "cave lake",
+      "cavern underground water"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

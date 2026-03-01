@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Hiu lebih tua dari dinosaurus",
+  "hook": "Hiu itu fosil hidup?",
+  "cta": "Tim takut hiu atau tim kagum hiu?",
+  "query": "",
+  "bg": {
+    "query": "shark underwater realistic photo",
+    "variants": [
+      "great white shark",
+      "shark close up"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

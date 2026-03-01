@@ -1,0 +1,28 @@
+{
+  "topic": "faktaunik",
+  "slug": "es_bisa_jadi_mesin_waktu",
+  "lines": [
+    "Es bisa jadi mesin waktu?",
+    "FAKTA: Lapisan es menyimpan gelembung udara dan partikel yang merekam kondisi atmosfer masa lalu.",
+    "Gelembung udara terperangkap saat salju memadat.",
+    "Ilmuwan bisa meneliti komposisi udaranya.",
+    "Seperti rekaman sejarah iklim.",
+    "Mau fakta Bumi yang bikin takjub lagi?"
+  ],
+  "tts_files": [
+    "/home/ubuntu01/yt-automation-onefact-ind/out/tts/single_gtts_tts_01_es_bisa_jadi_mesin_waktu_9176315c8a.mp3",
+    "/home/ubuntu01/yt-automation-onefact-ind/out/tts/single_gtts_tts_02_fakta_lapisan_es_menyimpan_gelem_b3643f5e09.mp3",
+    "/home/ubuntu01/yt-automation-onefact-ind/out/tts/single_gtts_tts_03_gelembung_udara_terperangkap_saa_2bf41a81d4.mp3",
+    "/home/ubuntu01/yt-automation-onefact-ind/out/tts/single_gtts_tts_04_ilmuwan_bisa_meneliti_komposisi__1276275d4c.mp3",
+    "/home/ubuntu01/yt-automation-onefact-ind/out/tts/single_gtts_tts_05_seperti_rekaman_sejarah_iklim_03d7cf91d7.mp3",
+    "/home/ubuntu01/yt-automation-onefact-ind/out/tts/single_gtts_tts_06_mau_fakta_bumi_yang_bikin_takjub_8e33467d89.mp3"
+  ],
+  "bg_files": [
+    "segment_000.jpg",
+    "segment_001.jpg",
+    "segment_002.jpg",
+    "segment_003.jpg"
+  ],
+  "bgm": null,
+  "status": "draft"
+}

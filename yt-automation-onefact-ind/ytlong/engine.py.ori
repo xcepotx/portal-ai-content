@@ -1,0 +1,263 @@
+import os
+import time
+import json
+import random
+import requests
+import textwrap
+import numpy as np
+from pathlib import Path
+
+# --- MOVIEPY V2 IMPORTS ---
+from moviepy import (
+    AudioFileClip, ImageClip, TextClip, CompositeVideoClip, 
+    concatenate_videoclips, ColorClip, CompositeAudioClip,
+    vfx, afx
+)
+
+# --- AUDIO & SEARCH ---
+from gtts import gTTS
+try:
+    from duckduckgo_search import DDGS
+    HAS_DDG = True
+except ImportError:
+    HAS_DDG = False
+
+# --- KONFIGURASI ---
+TEMP_DIR = "temp_long"
+RESULTS_DIR = "results"
+ASSET_DIR = "assets"
+
+for d in [TEMP_DIR, RESULTS_DIR, ASSET_DIR]:
+    if not os.path.exists(d):
+        os.makedirs(d)
+
+# ==========================================
+# 0. HELPER: FONT FINDER (NEW)
+# ==========================================
+def get_valid_font_path():
+    """Mencari font yang tersedia di sistem Ubuntu/Linux"""
+    
+    # 1. Cek folder lokal
+    if os.path.exists("arial.ttf"): return "arial.ttf"
+    if os.path.exists("Arial.ttf"): return "Arial.ttf"
+    
+    # 2. Cek path standar Linux (Ubuntu/Debian)
+    linux_fonts = [
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf"
+    ]
+    
+    for font in linux_fonts:
+        if os.path.exists(font):
+            return font
+            
+    # 3. Fallback terakhir (semoga sistem punya default)
+    return "arial.ttf" 
+
+# Simpan path font yang valid
+VALID_FONT = get_valid_font_path()
+print(f"🔤 Menggunakan Font: {VALID_FONT}")
+
+# ==========================================
+# 1. HELPER: TEXT TO SPEECH
+# ==========================================
+def generate_tts(text, engine="gtts", voice_id=None, filename="audio.mp3"):
+    path = os.path.join(TEMP_DIR, filename)
+    
+    if isinstance(text, list):
+        text = ". ".join([str(t) for t in text])
+    
+    text = str(text).strip()
+    if not text: return None
+
+    # Hapus file lama
+    if os.path.exists(path):
+        os.remove(path)
+
+    # Coba gTTS
+    try:
+        tts = gTTS(text=text, lang='id', slow=False)
+        tts.save(path)
+        return path
+    except Exception as e:
+        print(f"❌ TTS Error (Cek Internet): {e}")
+        return None
+
+# ==========================================
+# 2. HELPER: IMAGE SEARCH
+# ==========================================
+def get_image_url(query):
+    if not HAS_DDG: return None
+    try:
+        with DDGS() as ddgs:
+            results = list(ddgs.images(query, max_results=1))
+            if results: return results[0]['image']
+    except Exception as e:
+        print(f"⚠️ Image Search Error (Cek Internet): {e}")
+    return None
+
+def download_image(url, filename):
+    path = os.path.join(TEMP_DIR, filename)
+    try:
+        response = requests.get(url, timeout=5) # Timeout cepat biar gak lama nunggu
+        if response.status_code == 200:
+            with open(path, 'wb') as f:
+                f.write(response.content)
+            return path
+    except: pass
+    return None
+
+# ==========================================
+# 3. MAIN BUILDER
+# ==========================================
+def build_long_video(data, tts_engine="gtts", voice_id=None, no_watermark=False, watermark_text="@AutoFact"):
+    print(f"🚀 Starting Engine for: {data.get('title', 'Untitled')}")
+    
+    clips = []
+    
+    # --- Susun Segmen ---
+    segments = []
+    if data.get('hook'):
+        segments.append({"type": "hook", "text": data['hook'], "query": data.get('title', 'abstract')})
+    for i, chap in enumerate(data.get('chapters', [])):
+        segments.append({
+            "type": "chapter", 
+            "heading": chap.get('heading', f'Bagian {i+1}'),
+            "text": chap.get('text', ''),
+            "query": f"{chap.get('heading')} {data.get('title')}"
+        })
+    if data.get('cta'):
+        segments.append({"type": "cta", "text": data['cta'], "query": "Subscribe YouTube"})
+
+    total_segs = len(segments)
+    
+    for idx, seg in enumerate(segments):
+        print(f"⚙️ Processing Segment {idx+1}/{total_segs}")
+        
+        # 1. AUDIO
+        audio_path = generate_tts(seg['text'], tts_engine, voice_id, filename=f"seg_{idx}.mp3")
+        
+        if not audio_path:
+            print(f"⏩ Skip segmen {idx} karena gagal generate audio (Internet Mati?)")
+            continue
+        
+        try:
+            audio_clip = AudioFileClip(audio_path)
+            duration = audio_clip.duration + 0.5
+        except Exception as e:
+            print(f"⚠️ Audio corrupt: {e}")
+            continue
+
+        # 2. VISUAL
+        img_url = get_image_url(seg['query'])
+        img_path = None
+        if img_url:
+            img_path = download_image(img_url, f"img_{idx}.jpg")
+        
+        # Setup Visual Clip
+        if img_path:
+            try:
+                # MoviePy v2 syntax
+                visual_clip = ImageClip(img_path).resized(height=1080)
+                # Crop Center
+                w, h = visual_clip.size
+                if w > 1920:
+                    visual_clip = visual_clip.cropped(x_center=w/2, width=1920, height=1080)
+                else:
+                    visual_clip = visual_clip.resized(width=1920).cropped(y_center=h/2, width=1920, height=1080)
+            except:
+                 # Fallback jika gambar corrupt
+                 visual_clip = ColorClip(size=(1920, 1080), color=(20, 20, 30), duration=duration)
+        else:
+            # Fallback jika tidak ada internet/gambar
+            visual_clip = ColorClip(size=(1920, 1080), color=(20, 20, 30), duration=duration)
+
+        visual_clip = visual_clip.with_duration(duration).with_position("center")
+
+        # 3. TEXT OVERLAY
+        # Dark overlay
+        dark = ColorClip(size=(1920, 1080), color=(0,0,0), duration=duration).with_opacity(0.4)
+        comp_layers = [visual_clip, dark]
+
+        # Text Logic (Menggunakan VALID_FONT)
+        try:
+            txt_clip = None
+            if seg['type'] == 'chapter':
+                txt_clip = TextClip(
+                    text=seg['heading'].upper(), 
+                    font_size=70, 
+                    color='white', 
+                    font=VALID_FONT, # <-- Pakai font yang valid
+                    stroke_color='black', 
+                    stroke_width=2,
+                    method='caption',
+                    size=(1800, None)
+                ).with_position(('center', 800)).with_duration(duration)
+
+            elif seg['type'] == 'hook':
+                txt_clip = TextClip(
+                    text=seg['text'], 
+                    font_size=60, 
+                    color='yellow', 
+                    font=VALID_FONT, 
+                    stroke_color='black', 
+                    stroke_width=2,
+                    method='caption',
+                    size=(1600, None)
+                ).with_position('center').with_duration(duration)
+                
+            if txt_clip:
+                comp_layers.append(txt_clip)
+        except Exception as e:
+            print(f"⚠️ Text rendering error (Font issue?): {e}")
+            # Lanjut tanpa teks jika font error
+
+        # Gabungkan
+        final_seg = CompositeVideoClip(comp_layers, size=(1920,1080)).with_audio(audio_clip)
+        clips.append(final_seg)
+
+    # --- 4. STITCHING ---
+    if not clips:
+        print("❌ GAGAL TOTAL: Tidak ada klip yang berhasil dibuat (Cek Internet Anda!)")
+        return
+
+    print("🔗 Stitching Video...")
+    final_video = concatenate_videoclips(clips, method="compose")
+
+    # --- 5. BACKGROUND MUSIC ---
+    bg_music_path = os.path.join(ASSET_DIR, "background_long.mp3")
+    if os.path.exists(bg_music_path):
+        try:
+            bg_music = AudioFileClip(bg_music_path)
+            if bg_music.duration < final_video.duration:
+                bg_music = afx.audio_loop(bg_music, duration=final_video.duration)
+            else:
+                bg_music = bg_music.subclip(0, final_video.duration)
+            
+            bg_music = bg_music.with_volume_scaled(0.15)
+            new_audio = CompositeAudioClip([final_video.audio, bg_music])
+            final_video = final_video.with_audio(new_audio)
+        except: pass
+
+    # --- 6. RENDER ---
+    timestamp = int(time.time())
+    safe_title = "".join([c for c in data.get('title', 'video') if c.isalnum() or c==' ']).strip().replace(' ', '_')
+    out_path = os.path.join(RESULTS_DIR, f"{safe_title}_{timestamp}.mp4")
+
+    print(f"💾 Rendering to: {out_path}")
+    final_video.write_videofile(
+        out_path, 
+        fps=24, 
+        codec="libx264", 
+        audio_codec="aac",
+        threads=4,
+        preset="ultrafast" # Biar cepat
+    )
+    print("Done: Video Generated.")
+
+if __name__ == "__main__":
+    # Test
+    build_long_video({"title": "Test Offline", "hook": "Test", "chapters": [{"heading": "A", "text": "Isi A"}]})

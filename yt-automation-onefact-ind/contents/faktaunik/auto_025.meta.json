@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Ada ubur-ubur yang “abadi”",
+  "hook": "Hewan ini bisa balik muda lagi!",
+  "cta": "Kalau manusia bisa gini, kamu mau?",
+  "query": "",
+  "bg": {
+    "query": "jellyfish underwater glowing realistic photo",
+    "variants": [
+      "jellyfish close up",
+      "transparent jellyfish"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

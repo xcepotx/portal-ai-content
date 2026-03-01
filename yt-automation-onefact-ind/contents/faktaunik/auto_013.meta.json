@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Madu tidak pernah basi",
+  "hook": "Makanan bisa awet ribuan tahun?",
+  "cta": "Kamu pernah simpan madu lama banget?",
+  "query": "",
+  "bg": {
+    "query": "honey jar close up realistic photo",
+    "variants": [
+      "raw honey",
+      "honeycomb close up"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Lakukan balancing kalau setir bergetar",
+  "hook": "Setir getar di 80–100 km/jam?",
+  "cta": "Setir mobil kamu pernah getar?",
+  "query": "",
+  "bg": {
+    "query": "wheel balancing machine garage realistic photo",
+    "variants": [
+      "tire balancing service",
+      "wheel balancer close up"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

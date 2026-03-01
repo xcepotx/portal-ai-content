@@ -1,0 +1,152 @@
+# auth.py
+import os
+import hmac
+import hashlib
+import streamlit as st
+
+
+def _sha256(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+def _get_salt() -> str:
+    # set ini di env/.env biar stabil antar restart
+    return (os.getenv("APP_AUTH_SALT") or "CHANGE_ME_SALT").strip()
+
+
+def _hash_password(plain: str) -> str:
+    # sha256( salt + password )
+    salt = _get_salt()
+    return _sha256(salt + (plain or ""))
+
+
+def _consteq(a: str, b: str) -> bool:
+    return hmac.compare_digest((a or "").encode(), (b or "").encode())
+
+
+def init_auth_state():
+    if "auth_ok" not in st.session_state:
+        st.session_state.auth_ok = False
+    if "auth_user" not in st.session_state:
+        st.session_state.auth_user = ""
+
+
+def logout_button():
+    if st.button("🚪 Logout", width="stretch", key="btn_logout"):
+        st.session_state.auth_ok = False
+        st.session_state.auth_user = ""
+        st.rerun()
+
+import streamlit as st
+
+def sidebar_logout_bottom(on_click=None):
+    st.sidebar.markdown(
+        """
+        <style>
+        [data-testid="stSidebar"] { position: relative; }
+        .sidebar-bottom{
+            position: fixed;
+            bottom: 14px;
+            left: 0;
+            width: 300px;                 /* sidebar width default */
+            padding: 0 14px;
+            z-index: 9999;
+        }
+        @media (max-width: 768px){
+            .sidebar-bottom{ width: 100vw; }
+        }
+        </style>
+        <div class="sidebar-bottom"></div>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # tombolnya tetap dibuat via st.sidebar, lalu "secara visual" dipaku ke bawah
+    # (di beberapa theme, fixed + width sudah cukup rapi)
+    if st.sidebar.button("🚪 Logout", type="primary", width="stretch", key="btn_logout_bottom"):
+        if on_click:
+            on_click()
+        else:
+            st.session_state.auth_ok = False
+            st.session_state.auth_user = ""
+            st.rerun()
+
+
+def require_login(app_title: str = "Login"):
+    """
+    Panggil ini di awal app.py sebelum render tabs.
+    Kalau belum login -> tampilkan login form + stop().
+    """
+
+    init_auth_state()
+
+    # sudah login
+    if st.session_state.auth_ok:
+        return
+
+    st.set_page_config(page_title=app_title, layout="wide")
+    st.markdown(
+        """
+        <style>
+          .login-card{
+            max-width: 420px;
+            margin: 8vh auto 0 auto;
+            padding: 22px 22px;
+            border-radius: 16px;
+            border: 1px solid rgba(49,51,63,.15);
+            background: rgba(255,255,255,0.02);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+          }
+          @media (prefers-color-scheme: light){
+            .login-card{ background: rgba(0,0,0,0.02); }
+          }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    # Credential dari ENV
+    admin_user = (os.getenv("APP_AUTH_USER") or "admin").strip()
+    admin_hash = (os.getenv("APP_AUTH_PASS_HASH") or "").strip()
+
+    st.markdown(f"<div class='login-card'>", unsafe_allow_html=True)
+    st.subheader("🔐 Login")
+    st.caption("Masukkan username & password untuk masuk.")
+
+    u = st.text_input("Username", value="", key="login_user")
+    p = st.text_input("Password", value="", type="password", key="login_pass")
+
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        login = st.button("➡️ Login", type="primary", width="stretch", key="btn_login")
+    with col2:
+        st.button("↻ Reset", width="stretch", key="btn_reset")
+
+    if login:
+        if not admin_hash:
+            st.error("Server belum diset: APP_AUTH_PASS_HASH kosong. Set dulu di .env")
+        else:
+            ok_user = (u.strip() == admin_user)
+            ok_pass = _consteq(_hash_password(p), admin_hash)
+            if ok_user and ok_pass:
+                st.session_state.auth_ok = True
+                st.session_state.auth_user = u.strip()
+                st.success("✅ Login berhasil.")
+                st.rerun()
+            else:
+                st.error("❌ Username / password salah.")
+
+    st.markdown("</div>", unsafe_allow_html=True)
+    st.stop()
+
+
+def print_hash_helper():
+    """
+    Utility: untuk generate hash password.
+    Jalankan di Python REPL / script sekali.
+    """
+    pw = os.getenv("APP_AUTH_PLAIN", "")
+    if not pw:
+        print("Set APP_AUTH_PLAIN dulu.")
+        return
+    print("APP_AUTH_PASS_HASH=" + _hash_password(pw))

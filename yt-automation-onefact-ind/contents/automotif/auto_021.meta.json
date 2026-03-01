@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Cek alignment kalau mobil narik",
+  "hook": "Mobil narik ke kiri/kanan? Jangan diabaikan!",
+  "cta": "Mobil kamu pernah narik ke satu sisi?",
+  "query": "",
+  "bg": {
+    "query": "car wheel alignment service realistic photo",
+    "variants": [
+      "alignment machine",
+      "mechanic wheel alignment"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

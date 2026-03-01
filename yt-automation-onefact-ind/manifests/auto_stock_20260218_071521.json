@@ -1,0 +1,89 @@
+{
+  "version": "1.0",
+  "mode": "auto_stock",
+  "created_at": "20260218_071521",
+  "input": {
+    "content_file": "/home/ubuntu01/yt-automation-onefact-ind/contents/faktaunik/auto_001.txt",
+    "keyword": "frozen lake ice winter",
+    "stock_source": "both"
+  },
+  "output": {
+    "orientation": "9:16",
+    "target_duration": 30.0,
+    "final_duration": 26.122449,
+    "format": "mp4",
+    "aspect": "9:16",
+    "output_dir": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated"
+  },
+  "audio": {
+    "tts_enabled": true,
+    "tts_engine": "gtts",
+    "tts_voice": "id-ID-ArdiNeural",
+    "tts_speed": 1.0,
+    "audio_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_071521/tts_parts/tts_merged.mp3",
+    "audio_duration": 26.122449
+  },
+  "captions": {
+    "enabled": true,
+    "srt_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_071521/captions.srt",
+    "font_size": 12,
+    "style_name": "Modern Subtitle",
+    "position_name": "Bottom",
+    "style": {
+      "type": "drawtext",
+      "font_weight": "semibold",
+      "fill": "white",
+      "stroke": "black",
+      "stroke_width": 2,
+      "font_size": 12,
+      "box": true,
+      "box_color": "black",
+      "box_opacity": 0.35,
+      "box_padding": 14
+    },
+    "position": {
+      "anchor": "bottom_center",
+      "y": 0.88
+    }
+  },
+  "render": {
+    "handle": "@NgelucuShop",
+    "watermark_enabled": true,
+    "watermark_opacity": 120,
+    "watermark_position": "top-right",
+    "hook_subtitle": "FAKTA UNIK"
+  },
+  "scenes": [
+    {
+      "kind": "hook",
+      "duration": 3.8594250429378234,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_071521/clips/stock_01_pexels_7127949.mp4",
+      "text_overlay": "Tahukah kamu?"
+    },
+    {
+      "kind": "scene",
+      "duration": 6.017768460408881,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_071521/clips/stock_02_pexels_6831198.mp4",
+      "text_overlay": null
+    },
+    {
+      "kind": "scene",
+      "duration": 5.7712166044842,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_071521/clips/stock_03_pexels_4434249.mp4",
+      "text_overlay": null
+    },
+    {
+      "kind": "scene",
+      "duration": 6.54541771426385,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_071521/clips/stock_04_pexels_4434245.mp4",
+      "text_overlay": null
+    },
+    {
+      "kind": "cta",
+      "duration": 3.9286211779052467,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_071521/clips/stock_05_pexels_35651091.mp4",
+      "text_overlay": "Follow untuk fakta menarik lainnya!"
+    }
+  ],
+  "assets_dir": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260218_071521"
+}

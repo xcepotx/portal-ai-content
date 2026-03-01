@@ -1,0 +1,318 @@
+{
+  "title": "Fakta Otomotif",
+  "seconds": 30,
+  "hooks": [
+    "Hari ini satu fakta otomotif yang jarang dibahas.",
+    "Kamu mungkin sering dengar, tapi jarang dijelasin begini.",
+    "Ini satu hal kecil yang efeknya besar di mobil.",
+    "Satu fakta otomotif cepat, tapi penting."
+  ],
+  "ctas": [
+    "Kalau mau topik lain, tulis di komentar.",
+    "Mau bahas bagian mobil apa lagi? Komentar ya.",
+    "Kalau kamu suka format begini, follow untuk part berikutnya.",
+    "Tulis topik yang kamu pengen di komentar, nanti aku bikinin."
+  ],
+  "facts": [
+    {
+      "title": "ABS menjaga roda tidak mengunci",
+      "fact": "ABS bekerja dengan mengatur tekanan rem supaya roda tidak mengunci saat pengereman keras.",
+      "query": "anti-lock braking system car",
+      "lines": [
+        "Kalau roda mengunci, ban jadi selip dan mobil cenderung meluncur lurus.",
+        "Dengan ABS, kamu biasanya masih bisa menghindar sambil tetap ngerem.",
+        "Di jalan licin, ABS sangat membantu menjaga kontrol arah."
+      ]
+    },
+    {
+      "title": "Brake fade itu rem ‘melemah’ karena panas",
+      "fact": "Brake fade terjadi saat rem terlalu panas sehingga daya cengkeramnya menurun.",
+      "query": "brake fade overheating brakes",
+      "lines": [
+        "Biasanya muncul setelah pengereman terus-menerus, misalnya turunan panjang.",
+        "Pedal bisa terasa berbeda dan mobil butuh jarak lebih panjang untuk berhenti.",
+        "Solusi paling aman: teknik engine braking dan perawatan sistem rem."
+      ]
+    },
+    {
+      "title": "Engine braking mengurangi beban rem",
+      "fact": "Engine braking membantu memperlambat mobil dengan memanfaatkan tahanan mesin saat menurunkan gigi.",
+      "query": "engine braking downhill car",
+      "lines": [
+        "Berguna di turunan panjang supaya rem tidak cepat panas.",
+        "Cara ini membantu menjaga pengereman tetap konsisten.",
+        "Tetap pakai rem seperlunya, tapi jangan diinjak terus-menerus."
+      ]
+    },
+    {
+      "title": "Tekanan ban kurang bikin boros",
+      "fact": "Ban kurang angin meningkatkan hambatan gulir sehingga mesin bekerja lebih berat.",
+      "query": "underinflated tire fuel consumption",
+      "lines": [
+        "Mobil terasa lebih berat dan konsumsi bahan bakar bisa naik.",
+        "Ban juga lebih cepat panas dan aus tidak merata.",
+        "Cek tekanan ban rutin adalah kebiasaan kecil yang berdampak besar."
+      ]
+    },
+    {
+      "title": "Tekanan ban berlebih bisa turunkan grip",
+      "fact": "Ban terlalu keras bisa mengurangi area tapak ban, sehingga traksi bisa berkurang.",
+      "query": "overinflated tire reduced grip",
+      "lines": [
+        "Kenyamanan menurun karena getaran lebih terasa.",
+        "Di jalan bergelombang, ban lebih mudah memantul dan traksi turun.",
+        "Pakai angka tekanan ban sesuai rekomendasi pabrikan."
+      ]
+    },
+    {
+      "title": "Rotasi ban bikin aus lebih merata",
+      "fact": "Rotasi ban membantu menyamakan pola aus agar ban lebih awet dan handling konsisten.",
+      "query": "tire rotation pattern car",
+      "lines": [
+        "Ban depan sering lebih cepat habis karena belok dan pengereman.",
+        "Dengan rotasi, performa ban lebih seimbang.",
+        "Ikuti interval rotasi sesuai manual atau kondisi pemakaian."
+      ]
+    },
+    {
+      "title": "Balancing beda dengan spooring",
+      "fact": "Balancing merapikan putaran roda, spooring menyetel sudut roda agar lurus dan stabil.",
+      "query": "wheel alignment vs balancing",
+      "lines": [
+        "Getar di kecepatan tertentu sering terkait balancing.",
+        "Setir narik ke satu sisi sering terkait spooring.",
+        "Keduanya penting untuk kenyamanan dan umur ban."
+      ]
+    },
+    {
+      "title": "Oktan tinggi tidak otomatis lebih kencang",
+      "fact": "Bensin oktan tinggi membantu mencegah knocking di mesin yang butuh, bukan otomatis menambah tenaga di semua mesin.",
+      "query": "octane rating knocking engine",
+      "lines": [
+        "Kalau mesin tidak dirancang untuk oktan tinggi, bedanya bisa kecil.",
+        "Yang penting pakai sesuai rekomendasi pabrikan.",
+        "Oktan itu soal ketahanan terhadap detonasi."
+      ]
+    },
+    {
+      "title": "Turbo bisa efisien kalau dipakai santai",
+      "fact": "Mesin kecil berturbo bisa efisien, tapi konsumsi tergantung cara mengemudi.",
+      "query": "turbocharged engine small displacement",
+      "lines": [
+        "Saat santai, mesin kecil bisa hemat karena beban ringan.",
+        "Boros biasanya muncul kalau sering injak gas dalam-dalam.",
+        "Perawatan oli yang tepat penting untuk mesin turbo."
+      ]
+    },
+    {
+      "title": "CVT memang terasa ‘RPM nahan’",
+      "fact": "CVT bisa menahan RPM di titik tertentu agar mesin bekerja lebih efisien.",
+      "query": "CVT transmission RPM behavior",
+      "lines": [
+        "Berbeda dengan transmisi konvensional yang terasa pindah gigi.",
+        "Akselerasi bisa halus tapi terasa ‘ngempos’ bagi sebagian orang.",
+        "Itu karakter CVT, bukan otomatis tanda rusak."
+      ]
+    },
+    {
+      "title": "Warm up mobil modern tidak perlu lama",
+      "fact": "Mobil modern umumnya cukup dipanaskan sebentar lalu jalan pelan agar oli cepat bersirkulasi.",
+      "query": "car warm up modern engine oil circulation",
+      "lines": [
+        "Pemanasan terlalu lama saat diam hanya membuang bahan bakar.",
+        "Jalan pelan 1–2 menit pertama biasanya lebih ramah mesin.",
+        "Yang penting: hindari akselerasi agresif saat mesin masih dingin."
+      ]
+    },
+    {
+      "title": "Buka kaca di tol bisa bikin boros",
+      "fact": "Di kecepatan tinggi, buka kaca meningkatkan hambatan angin sehingga konsumsi bisa naik.",
+      "query": "open windows aerodynamic drag highway",
+      "lines": [
+        "Mobil harus melawan drag lebih besar.",
+        "Kadang lebih efisien pakai AC di tol daripada jendela terbuka.",
+        "Di kecepatan rendah, efeknya bisa berbeda."
+      ]
+    },
+    {
+      "title": "AC menambah beban mesin",
+      "fact": "AC memberi beban tambahan ke mesin, tapi efeknya tergantung kondisi dan mobilnya.",
+      "query": "car air conditioning fuel consumption",
+      "lines": [
+        "Di macet, efek AC lebih terasa karena mesin kerja lebih berat.",
+        "Di tol stabil, perbedaannya kadang lebih kecil.",
+        "Kalau panas, kenyamanan dan fokus berkendara juga penting."
+      ]
+    },
+    {
+      "title": "Traction control membantu cegah roda spin",
+      "fact": "Traction control mengurangi spin roda berlebih agar mobil lebih stabil di permukaan licin.",
+      "query": "traction control system slippery road",
+      "lines": [
+        "Sistem ini membantu kontrol, tapi tidak melawan hukum fisika.",
+        "Kalau grip ban minim, tetap bisa slip.",
+        "Kunci aman tetap: kecepatan dan jarak."
+      ]
+    },
+    {
+      "title": "Ukuran ban berbeda bisa ganggu sistem",
+      "fact": "Ukuran ban yang tidak sesuai bisa memengaruhi pembacaan sensor roda pada sistem keselamatan.",
+      "query": "different tire sizes ABS stability control",
+      "lines": [
+        "Sensor membaca putaran roda jadi tidak seharusnya.",
+        "Efeknya bisa ke ABS atau stability control bereaksi aneh.",
+        "Kalau ganti ban/velg, jaga diameter total tetap mendekati standar."
+      ]
+    },
+    {
+      "title": "Aki lemah bisa bikin error elektronik",
+      "fact": "Tegangan aki yang drop bisa memicu indikator error atau perilaku elektronik yang aneh.",
+      "query": "car battery low voltage electrical issues",
+      "lines": [
+        "Gejala bisa acak: head unit reset, indikator menyala, sampai starter berat.",
+        "Cek kondisi aki dan sistem pengisian berkala.",
+        "Kadang sumber masalah cuma kelistrikan dasar."
+      ]
+    },
+    {
+      "title": "Alternator bermasalah bikin aki cepat habis",
+      "fact": "Kalau alternator tidak mengisi dengan baik, aki drop dan sistem listrik terganggu.",
+      "query": "car alternator charging problem",
+      "lines": [
+        "Lampu bisa redup atau berubah terang saat RPM berubah.",
+        "Indikator aki di dashboard bisa menyala.",
+        "Lebih baik cek cepat sebelum mogok."
+      ]
+    },
+    {
+      "title": "Coolant beda dengan air biasa",
+      "fact": "Coolant melindungi sistem pendingin dari karat dan membantu stabilkan suhu kerja mesin.",
+      "query": "engine coolant radiator system",
+      "lines": [
+        "Air biasa berisiko memicu korosi dan endapan.",
+        "Coolant membantu menaikkan titik didih dan melindungi komponen.",
+        "Gunakan coolant sesuai rekomendasi pabrikan."
+      ]
+    },
+    {
+      "title": "Overheat bisa merusak mesin serius",
+      "fact": "Overheat yang dibiarkan bisa menyebabkan kerusakan komponen mesin dan biaya besar.",
+      "query": "engine overheating damage",
+      "lines": [
+        "Kalau suhu naik, berhenti aman dan cek sistem pendingin.",
+        "Periksa kebocoran coolant, kipas, atau radiator.",
+        "Pencegahan jauh lebih murah daripada perbaikan besar."
+      ]
+    },
+    {
+      "title": "Filter udara kotor bikin tenaga turun",
+      "fact": "Filter udara yang tersumbat mengurangi aliran udara sehingga performa mesin bisa menurun.",
+      "query": "dirty air filter engine performance",
+      "lines": [
+        "Respons gas terasa lebih berat.",
+        "Pembakaran bisa kurang optimal.",
+        "Bersihkan atau ganti filter sesuai jadwal."
+      ]
+    },
+    {
+      "title": "Busi aus bikin pembakaran tidak optimal",
+      "fact": "Busi yang aus dapat membuat pembakaran kurang sempurna sehingga mesin terasa kurang responsif.",
+      "query": "spark plug wear engine misfire",
+      "lines": [
+        "Kadang muncul getaran halus atau misfire.",
+        "Konsumsi bahan bakar bisa meningkat.",
+        "Ganti busi sesuai interval pabrikan."
+      ]
+    },
+    {
+      "title": "Injector kotor bikin idle tidak stabil",
+      "fact": "Injector kotor bisa membuat semprotan bahan bakar tidak merata sehingga idle bisa naik-turun.",
+      "query": "fuel injector cleaning idle rough",
+      "lines": [
+        "Akselerasi bisa terasa tersendat.",
+        "Filter bahan bakar dan kualitas BBM berpengaruh.",
+        "Perawatan berkala membantu menjaga performa."
+      ]
+    },
+    {
+      "title": "Eco mode mengubah respons gas",
+      "fact": "Eco mode biasanya melembutkan throttle dan mengatur beban agar lebih hemat.",
+      "query": "car eco mode throttle response",
+      "lines": [
+        "Mobil terasa lebih ‘santai’ saat gas diinjak.",
+        "Di macet, mode ini bisa membantu menghemat.",
+        "Kalau butuh akselerasi cepat, responsnya memang ditahan."
+      ]
+    },
+    {
+      "title": "Understeer dan oversteer itu beda",
+      "fact": "Understeer cenderung membuat mobil lurus saat belok, sedangkan oversteer membuat bagian belakang terasa ‘keluar’.",
+      "query": "understeer vs oversteer car cornering",
+      "lines": [
+        "Dipengaruhi kecepatan, kondisi ban, dan distribusi bobot.",
+        "Paling aman: kurangi kecepatan sebelum tikungan.",
+        "Jangan panik, haluskan input gas dan setir."
+      ]
+    },
+    {
+      "title": "Ban adalah komponen keselamatan utama",
+      "fact": "Satu-satunya bagian mobil yang kontak langsung dengan jalan adalah ban.",
+      "query": "car tires safety grip braking",
+      "lines": [
+        "Grip, pengereman, dan belok sangat dipengaruhi kondisi ban.",
+        "Ban tua atau kembangan tipis berbahaya meski jarang dipakai.",
+        "Cek tekanan, kondisi dinding, dan umur ban secara rutin."
+      ]
+    },
+    {
+      "title": "Spooring jelek bikin ban cepat habis",
+      "fact": "Alignment yang tidak benar membuat ban aus sebelah dan mobil terasa tidak stabil.",
+      "query": "wheel alignment uneven tire wear",
+      "lines": [
+        "Setir bisa narik ke satu sisi atau mobil terasa ‘berenang’.",
+        "Ban cepat aus dan biaya jadi lebih besar.",
+        "Kalau sering kena lubang, sebaiknya cek alignment."
+      ]
+    },
+    {
+      "title": "Oli terlalu kental bisa bikin berat",
+      "fact": "Kekentalan oli harus sesuai spesifikasi agar pelumasan optimal terutama saat start dingin.",
+      "query": "engine oil viscosity cold start",
+      "lines": [
+        "Oli terlalu kental bisa mengalir lebih lambat saat dingin.",
+        "Mesin bisa terasa lebih berat di awal.",
+        "Gunakan viskositas sesuai rekomendasi pabrikan."
+      ]
+    },
+    {
+      "title": "EPB berbeda dari rem tangan manual",
+      "fact": "Rem tangan elektrik punya cara kerja dan prosedur servis berbeda dari rem tangan kabel.",
+      "query": "electronic parking brake EPB",
+      "lines": [
+        "Beberapa mobil punya fitur auto-hold yang menahan di tanjakan.",
+        "Untuk servis rem belakang kadang butuh mode servis khusus.",
+        "Kalau ada indikator aneh, cek manual atau bengkel."
+      ]
+    },
+    {
+      "title": "Ban beda merek bisa beda karakter",
+      "fact": "Dua ban dengan ukuran sama bisa punya grip dan tingkat kebisingan berbeda tergantung kompon dan desain.",
+      "query": "car tire tread compound grip noise",
+      "lines": [
+        "Kompon mempengaruhi grip di basah dan kering.",
+        "Desain tapak mempengaruhi suara dan aquaplaning.",
+        "Pilih ban sesuai kebutuhan: nyaman, grip, atau tahan lama."
+      ]
+    },
+    {
+      "title": "Aquaplaning terjadi saat ban ‘mengapung’ di air",
+      "fact": "Aquaplaning terjadi saat ban tidak mampu membuang air sehingga kehilangan kontak dengan aspal.",
+      "query": "aquaplaning hydroplaning tire rain",
+      "lines": [
+        "Risikonya naik saat kencang dan ban sudah tipis.",
+        "Kurangi kecepatan saat hujan dan jaga jarak.",
+        "Ban yang sehat sangat membantu mengurangi risiko."
+      ]
+    }
+  ]
+}

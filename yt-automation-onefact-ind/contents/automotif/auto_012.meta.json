@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Jaga radiator fin tetap bersih",
+  "hook": "Overheat bisa karena radiator kotor!",
+  "cta": "Pernah lihat radiator fin mobil kamu?",
+  "query": "",
+  "bg": {
+    "query": "dirty radiator fins bugs close up realistic photo",
+    "variants": [
+      "radiator fins cleaning",
+      "car radiator front dirt"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

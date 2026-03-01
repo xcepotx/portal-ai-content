@@ -1,0 +1,1374 @@
+from __future__ import annotations
+
+import os
+import traceback
+import re
+import hashlib
+import random
+import sys
+import time
+import json
+import html
+from pathlib import Path
+import streamlit as st
+
+from core.job_store import JobStore
+from core import helpers
+
+TAB_KEY = "long_video"
+
+
+# =========================
+# Helpers
+# =========================
+GLOBAL_PROFILE_NAME = "__global__"
+
+def _latest_long_output(ws_root: Path) -> Path | None:
+    try:
+        d = (Path(ws_root) / "out" / "long").resolve()
+        if not d.exists():
+            return None
+        mp4s = list(d.glob("*.mp4"))
+        if not mp4s:
+            return None
+        mp4s.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        return mp4s[0]
+    except Exception:
+        return None
+        
+def _opacity_to_255(v, default: int = 120) -> int:
+    """
+    Support legacy 0.0..1.0 or new 0..255.
+    """
+    try:
+        f = float(v)
+        if 0.0 <= f <= 1.0:
+            f *= 255.0
+        i = int(round(f))
+        return max(0, min(255, i))
+    except Exception:
+        return max(0, min(255, int(default)))
+
+def _list_avatar_ids(ctx=None) -> list[str]:
+    # repo root: .../yt-automation-onefact-ind
+    repo_root = Path(__file__).resolve().parents[1]
+    avatars_dir = (repo_root / "assets" / "avatars").resolve()
+    if not avatars_dir.exists():
+        return []
+    ids = [p.name for p in avatars_dir.iterdir() if p.is_dir() and not p.name.startswith(".")]
+    ids.sort(key=lambda x: x.lower())
+    return ids
+
+def _render_log_placeholder(ph, text: str, height: int = 280):
+    ph.text_area("Log", value=text or "", height=height, label_visibility="collapsed")
+
+def _dbg_write(log_f, msg: str):
+    try:
+        s = str(msg).rstrip()
+        if not s:
+            return
+        log_f.write(s + "\n")
+        log_f.flush()
+    except Exception:
+        pass
+
+def _fmt_kv(d: dict) -> str:
+    out = []
+    for k, v in d.items():
+        out.append(f"- {k}: {v}")
+    return "\n".join(out)
+
+def _effective_api_keys(ctx) -> dict:
+    if isinstance(ctx, dict) and isinstance(ctx.get("api_keys"), dict):
+        return ctx["api_keys"]
+    # fallback: coba dari profile.api_keys
+    prof = _load_profile_from_ctx_or_store(ctx)
+    api = (prof.get("api_keys") or {}) if isinstance(prof, dict) else {}
+    return api if isinstance(api, dict) else {}
+
+def _inject_env_keys_from_ctx(ctx) -> None:
+    keys = _effective_api_keys(ctx)
+    if not keys:
+        return
+    eleven = (keys.get("elevenlabs") or "").strip()
+    if eleven:
+        os.environ["ELEVENLABS_API_KEY"] = eleven
+
+def _parse_csv(s: str) -> list[str]:
+    s = (s or "").replace("\n", ",")
+    return [x.strip() for x in s.split(",") if x.strip()]
+
+def _resolve_edge_voice_pool(ctx, global_prof: dict) -> list[str]:
+    # 1) ctx["render"]["edge_voice_pool"]
+    try:
+        if isinstance(ctx, dict):
+            pool = ((ctx.get("render") or {}).get("edge_voice_pool")) or []
+            if isinstance(pool, list) and pool:
+                out = [str(x).strip() for x in pool if str(x).strip()]
+                if out:
+                    return out
+    except Exception:
+        pass
+
+    # 2) global profile render_defaults.edge_voice_pool_csv
+    g_rd = (global_prof.get("render_defaults") or {}) if isinstance(global_prof, dict) else {}
+    csv = (g_rd.get("edge_voice_pool_csv") or "").strip()
+    if csv:
+        out = _parse_csv(csv)
+        if out:
+            return out
+
+    # 3) ENV
+    csv = (os.getenv("EDGE_VOICE_POOL_CSV") or "").strip()
+    if csv:
+        out = _parse_csv(csv)
+        if out:
+            return out
+
+    # 4) fallback
+    return ["id-ID-ArdiNeural", "id-ID-GadisNeural", "en-US-GuyNeural", "en-US-JennyNeural"]
+
+def _stable_choice(pool: list[str], seed_text: str) -> str:
+    if not pool:
+        return ""
+    h = hashlib.md5(seed_text.encode("utf-8")).hexdigest()
+    rng = random.Random(int(h[:8], 16))
+    return rng.choice(pool)
+
+def _coerce_path(v) -> Path | None:
+    if v is None:
+        return None
+    try:
+        p = Path(str(v)).expanduser().resolve()
+        return p
+    except Exception:
+        return None
+
+def _resolve_templates_dirs(ctx) -> list[Path]:
+    """
+    Cari template folder dari beberapa sumber:
+    1) ctx.paths.templates (kalau portal menyediakan)
+    2) ctx.paths.user_root/templates (tempat AI Chatbot save)
+    3) repo ./templates (fallback legacy)
+    """
+    dirs: list[Path] = []
+
+    paths = {}
+    if isinstance(ctx, dict) and isinstance(ctx.get("paths"), dict):
+        paths = ctx["paths"] or {}
+
+    p_templates = _coerce_path(paths.get("templates"))
+    if p_templates:
+        dirs.append(p_templates)
+
+    p_user_root = _coerce_path(paths.get("user_root"))
+    if p_user_root:
+        dirs.append((p_user_root / "templates").resolve())
+
+    # fallback legacy repo local
+    dirs.append(Path("templates").resolve())
+
+    # unique + ensure exists
+    uniq: list[Path] = []
+    seen = set()
+    for d in dirs:
+        if not d:
+            continue
+        dp = d.resolve()
+        if str(dp) in seen:
+            continue
+        seen.add(str(dp))
+        dp.mkdir(parents=True, exist_ok=True)
+        uniq.append(dp)
+
+    return uniq
+
+def _ctx_get_username(ctx) -> str:
+    if not isinstance(ctx, dict):
+        return ""
+    return (ctx.get("auth_user") or ctx.get("user") or ctx.get("username") or "").strip()
+
+
+def _ctx_get_services(ctx):
+    if not isinstance(ctx, dict):
+        return None
+    return ctx.get("services") or ctx.get("service") or ctx.get("svc")
+
+
+def _ctx_get_profile_store(ctx):
+    services = _ctx_get_services(ctx)
+    if not services:
+        return None
+
+    if isinstance(services, dict):
+        return services.get("profile_store") or services.get("profiles")
+
+    for attr in ("profile_store", "profiles"):
+        if hasattr(services, attr):
+            return getattr(services, attr)
+
+    return None
+
+
+def _load_profile_from_ctx_or_store(ctx) -> dict:
+    # prefer ctx["profile"]
+    if isinstance(ctx, dict) and isinstance(ctx.get("profile"), dict):
+        return ctx["profile"]
+
+    store = _ctx_get_profile_store(ctx)
+    user = _ctx_get_username(ctx)
+    if store and user:
+        try:
+            return store.get_profile(user, decrypt_secrets=True) or {}
+        except TypeError:
+            return store.get_profile(user) or {}
+        except Exception:
+            return {}
+    return {}
+
+
+def _load_global_profile_from_ctx_or_store(ctx) -> dict:
+    if isinstance(ctx, dict) and isinstance(ctx.get("global_profile"), dict):
+        return ctx["global_profile"]
+
+    store = _ctx_get_profile_store(ctx)
+    if store:
+        try:
+            return store.get_profile("__global__", decrypt_secrets=True) or {}
+        except TypeError:
+            return store.get_profile("__global__") or {}
+        except Exception:
+            return {}
+    return {}
+
+def _list_long_templates(ctx) -> list[tuple[str, Path]]:
+    """
+    Return list of (label, full_path) untuk file long*.json
+    """
+    out: list[tuple[str, Path]] = []
+    for d in _resolve_templates_dirs(ctx):
+        for p in d.glob("long*.json"):
+            if p.is_file():
+                # label berisi folder biar jelas sumbernya
+                label = f"{d.name}/{p.name}"
+                out.append((label, p.resolve()))
+    out.sort(key=lambda x: x[1].stat().st_mtime if x[1].exists() else 0, reverse=True)
+    return out
+
+def _load_json(path: str) -> dict:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        raise ValueError("Format JSON harus object {...}, bukan list.")
+    return data
+
+
+def _deepcopy_json(obj):
+    # aman untuk nested dict/list
+    return json.loads(json.dumps(obj, ensure_ascii=False))
+
+
+def _get_title(d: dict) -> str:
+    return str(d.get("title") or (d.get("video_project") or {}).get("judul") or "Untitled").strip()
+
+
+def _get_chapters(d: dict) -> list[dict]:
+    # template long biasanya punya content_flow
+    flow = d.get("content_flow")
+    if isinstance(flow, list):
+        return [x for x in flow if isinstance(x, dict)]
+    return []
+
+def _chapter_text(ch: dict) -> str:
+    # support key Indo + English
+    for k in ("narasi", "narrasi", "narration", "text", "script", "content", "voiceover", "body"):
+        v = ch.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    v = ch.get("lines")
+    if isinstance(v, list):
+        s = "\n".join([str(x) for x in v if str(x).strip()])
+        return s.strip()
+    return ""
+
+def _chapter_title(ch: dict, idx: int) -> str:
+    for k in ("segmen", "title", "chapter", "heading", "judul"):
+        v = ch.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return f"Chapter {idx+1}"
+
+def _suggest_keyword_from_text(text: str) -> str:
+    # heuristic ringan: ambil 6-8 kata pertama
+    words = re.findall(r"[A-Za-z0-9À-ÿ']+", (text or "").strip(), flags=re.UNICODE)
+    return " ".join(words[:8]).strip()
+
+
+def _parse_output_from_log_line(line: str) -> str | None:
+    s = (line or "").strip()
+    # prefer explicit token
+    m = re.search(r"OUTPUT_MP4:\s*(.+)$", s)
+    if m:
+        p = m.group(1).strip()
+        return p
+    # fallback patterns
+    m = re.search(r"(?:rendering to:|Done:)\s*(.+\.mp4)\s*$", s, flags=re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    return None
+
+
+def _logbox_autoscroll(title: str, text: str, height_px: int = 280):
+    safe = html.escape(text or "")
+    st.components.v1.html(
+        f"""
+        <div style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+                    font-size: 12px;">
+          <div style="margin-bottom:6px; opacity:.85;">{html.escape(title)}</div>
+          <div id="logbox"
+               style="height:{int(height_px)}px; overflow:auto; white-space:pre-wrap;
+                      border:1px solid rgba(255,255,255,0.12); border-radius:10px;
+                      padding:10px; background:rgba(0,0,0,0.35);">
+{safe}
+          </div>
+        </div>
+        <script>
+          const el = document.getElementById("logbox");
+          if (el) {{ el.scrollTop = el.scrollHeight; }}
+        </script>
+        """,
+        height=height_px + 60,
+    )
+
+
+# =========================
+# Main UI
+# =========================
+def render(ctx=None):
+    # ctx["config"] (legacy) -> bisa kosong di portal tertentu
+    config = {}
+
+    prof = _load_profile_from_ctx_or_store(ctx)
+    global_prof = _load_global_profile_from_ctx_or_store(ctx)
+    _inject_env_keys_from_ctx(ctx)
+
+    rd = (prof.get("render_defaults") or {}) if isinstance(prof, dict) else {}
+    edge_pool = _resolve_edge_voice_pool(ctx, global_prof)
+
+    try:
+        if isinstance(ctx, dict):
+            config = ctx.get("config") or {}
+    except Exception:
+        config = {}
+
+    st.subheader("📺 Generator Video Panjang (3–5 Menit)")
+
+    # ---- state ----
+    if f"{TAB_KEY}_running" not in st.session_state:
+        st.session_state[f"{TAB_KEY}_running"] = False
+    if f"{TAB_KEY}_start_job" not in st.session_state:
+        st.session_state[f"{TAB_KEY}_start_job"] = False
+    if f"{TAB_KEY}_last_output" not in st.session_state:
+        st.session_state[f"{TAB_KEY}_last_output"] = None
+    if f"{TAB_KEY}_log_path" not in st.session_state:
+        st.session_state[f"{TAB_KEY}_log_path"] = None
+
+    running = bool(st.session_state.get(f"{TAB_KEY}_running", False))
+
+    # ---- STOP button ----
+    c_stop, c_info = st.columns([1, 3])
+    with c_stop:
+        if running:
+            pid = helpers.get_pid()
+            label = "🛑 STOP" if pid else "🛑 STOP (starting...)"
+            if st.button(label, type="primary", use_container_width=True, key=f"{TAB_KEY}_stop_btn"):
+                if pid:
+                    helpers.kill_running_process()
+                st.session_state[f"{TAB_KEY}_running"] = False
+                st.session_state[f"{TAB_KEY}_start_job"] = False
+                st.toast("Proses dihentikan.", icon="🛑")
+                time.sleep(0.2)
+                st.rerun()
+    with c_info:
+        if running:
+            if helpers.get_pid():
+                st.warning("⚠️ Long video sedang dirender. Klik STOP jika ingin menghentikan.")
+            else:
+                st.info("⏳ Menyiapkan proses... tombol STOP sudah aktif.")
+
+    st.divider()
+
+    # =========================
+    # 1) TEMPLATE PICKER (only long*.json)
+    # =========================
+    st.markdown("### 1️⃣ Sumber Konten")
+    cands = _list_long_templates(ctx)
+
+    if not cands:
+        searched = "\n".join([f"- {p}" for p in _resolve_templates_dirs(ctx)])
+        st.error("❌ Tidak ada template long yang ditemukan.\n\nFolder yang dicek:\n" + searched)
+        return
+
+    labels = [lab for lab, _ in cands]
+    label_pick = st.selectbox("Pilih File Script LONG (JSON)", labels, index=0, key="long_json_pick")
+
+    map_label_to_path = {lab: p for lab, p in cands}
+    full_path = str(map_label_to_path[label_pick])
+    selected_json = Path(full_path).name
+    st.session_state[f"{TAB_KEY}_json_full_path"] = full_path
+
+    try:
+        json_data = _load_json(full_path)
+    except Exception as e:
+        st.error(f"❌ Gagal memuat JSON: {e}")
+        st.code(full_path)
+        return
+
+    # init hook/cta randomized per template
+    if st.session_state.get(f"{TAB_KEY}_last_json") != selected_json:
+        st.session_state[f"{TAB_KEY}_active_hook"] = helpers.pick_from_json_field(json_data, "hook", "")
+        st.session_state[f"{TAB_KEY}_active_cta"] = helpers.pick_from_json_field(json_data, "cta", "")
+        st.session_state[f"{TAB_KEY}_last_json"] = selected_json
+
+    title = _get_title(json_data)
+    chapters = _get_chapters(json_data)
+
+    st.markdown("### 2️⃣ Preview Script")
+    st.json({
+        "Template": selected_json,
+        "Title": title,
+        "Hook (selected)": st.session_state.get(f"{TAB_KEY}_active_hook", ""),
+        "CTA (selected)": st.session_state.get(f"{TAB_KEY}_active_cta", ""),
+        "Total Chapters": len(chapters),
+    })
+
+    with st.expander("📄 Preview Content (per chapter)", expanded=False):
+        if not chapters:
+            st.info("Tidak ada `content_flow` (chapters) di template ini.")
+        for i, ch in enumerate(chapters):
+            st.markdown(f"**{i+1}. {_chapter_title(ch, i)}**")
+            txt = _chapter_text(ch)
+            if not txt:
+                st.caption("(chapter text kosong)")
+            else:
+                st.text_area(
+                    f"Chapter {i+1} text",
+                    value=txt,
+                    height=140,
+                    label_visibility="collapsed",
+                    key=f"{TAB_KEY}_ch_prev_{i}",
+                )
+            st.divider()
+
+    # =========================
+    # 3) IMAGE KEYWORDS (global + per chapter)
+    # =========================
+    st.markdown("### 3️⃣ Keyword untuk Pencarian Images")
+    default_kw = st.session_state.get(f"{TAB_KEY}_kw_global")
+    if not default_kw:
+        # fallback: dari title/hook
+        default_kw = _suggest_keyword_from_text(title or "") or _suggest_keyword_from_text(st.session_state.get(f"{TAB_KEY}_active_hook", ""))
+
+    kw_global = st.text_input(
+        "Keyword global (opsional) — dipakai sebagai pendekatan pencarian gambar",
+        value=str(default_kw or ""),
+        key=f"{TAB_KEY}_kw_global",
+        help="Kosongkan jika ingin engine auto-generate keyword per chapter.",
+    )
+
+    # Per-chapter override table
+    per_rows = []
+    for i, ch in enumerate(chapters):
+        ch_title = _chapter_title(ch, i)
+        # ambil keyword existing kalau ada
+        existing = ""
+        for k in ("image_query", "keyword", "query", "image_keyword"):
+            v = ch.get(k)
+            if isinstance(v, str) and v.strip():
+                existing = v.strip()
+                break
+        if not existing:
+            existing = _suggest_keyword_from_text(ch_title) or _suggest_keyword_from_text(_chapter_text(ch))
+        per_rows.append({"idx": i + 1, "chapter": ch_title, "image_keyword": existing})
+
+    st.caption("Opsional: override keyword per chapter (kalau tidak diubah, tetap pakai suggestion).")
+    edited = st.data_editor(
+        per_rows,
+        key=f"{TAB_KEY}_kw_table",
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "idx": st.column_config.NumberColumn("No", width="small"),
+            "chapter": st.column_config.TextColumn("Chapter", width="large", disabled=True),
+            "image_keyword": st.column_config.TextColumn("Image keyword", width="large"),
+        },
+    )
+
+    refresh_images = st.checkbox(
+        "Refresh/force re-download images (kalau engine support)",
+        value=bool(st.session_state.get(f"{TAB_KEY}_refresh_images", False)),
+        key=f"{TAB_KEY}_refresh_images",
+        help="Jika ON, engine akan dipaksa regenerate assets gambar bila fitur ini didukung.",
+    )
+
+    # =========================
+    # 4) TTS / WATERMARK / BGM / AVATAR options
+    # =========================
+    st.markdown("### 4️⃣ Render Options")
+    voice_to_use = "" 
+
+    with st.expander("🗣️ TTS Settings", expanded=False):
+        tts_enabled = st.toggle(
+            "Enable TTS",
+            value=bool(st.session_state.get(f"{TAB_KEY}_tts_on", True)),
+            key=f"{TAB_KEY}_tts_on",
+        )
+
+        # options: elevenlabs hanya muncul kalau key ada
+        has_eleven = bool((os.getenv("ELEVENLABS_API_KEY") or "").strip())
+        tts_opts = ["elevenlabs", "edge", "gtts"] if has_eleven else ["edge", "gtts"]
+
+        # default dari profile
+        cur_tts = (rd.get("tts_engine") or "gtts")
+        if cur_tts == "edge-tts":
+            cur_tts = "edge"
+        if cur_tts not in tts_opts:
+            cur_tts = tts_opts[0]
+
+        tts_engine_key = f"{TAB_KEY}_tts_engine"
+        sel_engine = st.session_state.get(tts_engine_key, cur_tts)
+        if sel_engine not in tts_opts:
+            sel_engine = cur_tts
+
+        tts_engine = st.selectbox(
+            "TTS engine",
+            tts_opts,
+            index=tts_opts.index(sel_engine),
+            disabled=not tts_enabled,
+            key=tts_engine_key,
+            format_func=(lambda x: "edge-tts (gratis)" if x == "edge" else x),
+        )
+
+        # output yang akan dipakai runner
+        voice_to_use = ""
+
+        c1, c2 = st.columns([2, 1])
+        with c2:
+            speed = st.slider(
+                "Speed",
+                min_value=0.6, max_value=1.4,
+                value=float(st.session_state.get(f"{TAB_KEY}_tts_speed", 1.0)),
+                step=0.05,
+                disabled=not tts_enabled,
+                key=f"{TAB_KEY}_tts_speed",
+            )
+
+        with c1:
+            if tts_engine == "edge":
+                edge_default = (rd.get("edge_voice") or os.getenv("EDGE_TTS_VOICE", "id-ID-ArdiNeural")).strip()
+                if edge_default not in edge_pool and edge_pool:
+                    edge_default = edge_pool[0]
+
+                edge_voice_key = f"{TAB_KEY}_edge_voice"
+                voice_to_use = st.selectbox(
+                    "Voice (edge-tts)",
+                    edge_pool,
+                    index=edge_pool.index(st.session_state.get(edge_voice_key, edge_default)) if edge_pool else 0,
+                    disabled=not tts_enabled,
+                    key=edge_voice_key,
+                )
+
+            elif tts_engine == "elevenlabs":
+                # pool dari profile: render_defaults.voice_id (CSV)
+                prof_pool = _parse_csv(str(rd.get("voice_id", "") or ""))
+                if not prof_pool:
+                    v1 = (os.getenv("ELEVENLABS_VOICE_ID_1", "") or "").strip()
+                    v2 = (os.getenv("ELEVENLABS_VOICE_ID_2", "") or "").strip()
+                    prof_pool = [x for x in [v1, v2] if x]
+
+                pool_key = f"{TAB_KEY}_eleven_pool"
+                pool_default_text = ", ".join(prof_pool) if prof_pool else ""
+                pool_raw = st.text_area(
+                    "ElevenLabs voice_id pool (pisahkan koma / newline)",
+                    value=str(st.session_state.get(pool_key, pool_default_text)),
+                    key=pool_key,
+                    height=80,
+                    disabled=not tts_enabled,
+                )
+                pool = [x.strip() for x in pool_raw.replace("\n", ",").split(",") if x.strip()]
+
+                if not pool:
+                    st.warning("Isi minimal 1 voice_id (atau set render_defaults.voice_id di My Profile).")
+                    voice_to_use = ""
+                else:
+                    # random stabil (berdasarkan template yang dipilih) biar tidak berubah tiap rerun
+                    seed_text = f"{selected_json}|eleven"
+                    voice_to_use = _stable_choice(pool, seed_text)
+                    st.caption(f"🎲 Random voice yang dipakai: `{voice_to_use}`")
+
+            else:
+                st.caption("gTTS tidak butuh voice dropdown.")
+                voice_to_use = ""
+
+    st.session_state[f"{TAB_KEY}_tts_voice_to_use"] = voice_to_use
+
+    with st.expander("🏷️ Watermark", expanded=False):
+        # === ambil dari profile.render_defaults ===
+        wm_list = _parse_csv(str(rd.get("watermark_handles_csv", "") or ""))
+        # fallback: kalau user cuma punya 1 handle di watermark_handle
+        if not wm_list and (rd.get("watermark_handle") or "").strip():
+            wm_list = [(rd.get("watermark_handle") or "").strip()]
+
+        # ON/OFF (default dari profile: kalau watermark_handle kosong -> tetap ON tapi text bisa kosong)
+        wm_on_key = f"{TAB_KEY}_wm_on"
+        wm_enabled = st.toggle(
+            "Enable Watermark",
+            value=bool(st.session_state.get(wm_on_key, True)),
+            key=wm_on_key,
+        )
+
+        # ---- Handle dropdown kalau ada list ----
+        handle_key = f"{TAB_KEY}_wm_handle"
+        handle_default = (rd.get("watermark_handle") or "@yourchannel").strip()
+
+        if wm_list:
+            cur = st.session_state.get(handle_key, handle_default)
+            if cur not in wm_list:
+                # kalau default profile ada di list -> pakai itu, else pakai item pertama
+                cur = handle_default if handle_default in wm_list else wm_list[0]
+
+            wm_handle = st.selectbox(
+                "Watermark handle",
+                wm_list,
+                index=wm_list.index(cur),
+                key=handle_key,
+                disabled=not wm_enabled,
+            )
+        else:
+            wm_handle = st.text_input(
+                "Watermark handle",
+                value=str(st.session_state.get(handle_key, handle_default)),
+                key=handle_key,
+                disabled=not wm_enabled,
+            )
+
+        # ---- Position dari profile ----
+        pos_opts = ["top-right", "top-left", "bottom-right", "bottom-left"]
+        wm_pos_key = f"{TAB_KEY}_wm_pos"
+        pos_default = (rd.get("watermark_position") or "bottom-right").strip()
+        if pos_default not in pos_opts:
+            pos_default = "bottom-right"
+
+        cur_pos = st.session_state.get(wm_pos_key, pos_default)
+        if cur_pos not in pos_opts:
+            cur_pos = pos_default
+
+        wm_pos = st.selectbox(
+            "Position",
+            pos_opts,
+            index=pos_opts.index(cur_pos),
+            key=wm_pos_key,
+            disabled=not wm_enabled,
+        )
+
+        # ---- Opacity dari profile ----
+        wm_op_key = f"{TAB_KEY}_wm_op"
+        op_default = _opacity_to_255(rd.get("watermark_opacity", 120), default=120)
+        wm_op = st.slider(
+            "Opacity (0–255)",
+            min_value=0,
+            max_value=255,
+            value=int(st.session_state.get(wm_op_key, op_default)),
+            step=1,
+            key=wm_op_key,
+            disabled=not wm_enabled,
+        )
+
+        # ---- Simpan no_watermark boolean (buat runner) ----
+        st.session_state[f"{TAB_KEY}_no_wm"] = (not wm_enabled)
+
+    with st.expander("🎵 BGM", expanded=False):
+        bgm_enabled = st.toggle(
+            "Enable BGM",
+            value=bool(st.session_state.get(f"{TAB_KEY}_bgm_on", True)),
+            key=f"{TAB_KEY}_bgm_on",
+        )
+        bgm_vol = st.slider(
+            "BGM volume",
+            min_value=0.0,
+            max_value=1.0,
+            value=float(st.session_state.get(f"{TAB_KEY}_bgm_vol", 0.20)),
+            step=0.05,
+            key=f"{TAB_KEY}_bgm_vol",
+            disabled=not bgm_enabled,
+        )
+
+    with st.expander("🧑‍⚕️ Avatar (Lipsync Rhubarb)", expanded=False):
+        avatar_enabled = st.checkbox(
+            "Enable Avatar (lipsync mengikuti audio)",
+            value=bool(st.session_state.get(f"{TAB_KEY}_avatar_on", False)),
+            key=f"{TAB_KEY}_avatar_on",
+            help="Butuh rhubarb terinstall. Avatar akan di-overlay kanan-bawah.",
+        )
+
+        avatar_ids = _list_avatar_ids(ctx)
+        if not avatar_ids:
+            st.warning("Folder avatar tidak ditemukan: `assets/avatars/` (repo).")
+            avatar_ids = ["cat_v1"]
+
+        # default dari session atau fallback
+        cur_id = str(st.session_state.get(f"{TAB_KEY}_avatar_id", "cat_v1") or "cat_v1").strip()
+        if cur_id not in avatar_ids:
+            cur_id = avatar_ids[0]
+
+        avatar_pick = st.selectbox(
+            "Pilih Avatar",
+            avatar_ids,
+            index=avatar_ids.index(cur_id),
+            key=f"{TAB_KEY}_avatar_pick",
+            disabled=not avatar_enabled,
+            help="Diambil dari folder `assets/avatars/<id>/`",
+        )
+
+        # sync ke avatar_id (yang dipakai runner/cfg)
+        st.session_state[f"{TAB_KEY}_avatar_id"] = avatar_pick
+
+        avatar_scale = st.slider(
+            "Avatar scale (proporsi tinggi video)",
+            min_value=0.10,
+            max_value=0.35,
+            value=float(st.session_state.get(f"{TAB_KEY}_avatar_scale", 0.20)),
+            step=0.01,
+            key=f"{TAB_KEY}_avatar_scale",
+            disabled=not avatar_enabled,
+        )
+
+        st.caption(f"Avatar aktif: `{avatar_pick}`")
+
+    st.divider()
+
+    # =========================
+    # 5) Render Controls
+    # =========================
+    st.markdown("### 5️⃣ Render Controls")
+
+    role = st.session_state.get("auth_role", "")
+    can_generate = (role == "admin") or (role == "")  # fallback legacy
+    if not can_generate:
+        st.info("Akun ini mode VIEWER: tombol Generate dinonaktifkan.")
+
+    if st.button("🎥 GENERATE LONG VIDEO", type="primary", use_container_width=True, disabled=running or (not can_generate), key=f"{TAB_KEY}_gen_btn"):
+        helpers.clear_pid()
+        st.session_state[f"{TAB_KEY}_running"] = True
+        st.session_state[f"{TAB_KEY}_start_job"] = True
+        st.session_state[f"{TAB_KEY}_selected_json"] = selected_json
+        st.session_state[f"{TAB_KEY}_selected_json_path"] = full_path
+        st.session_state[f"{TAB_KEY}_last_output"] = None
+        st.rerun()
+
+    # =========================
+    # JOB RUNNER
+    # =========================
+    if st.session_state.get(f"{TAB_KEY}_running") and st.session_state.get(f"{TAB_KEY}_start_job"):
+        st.session_state[f"{TAB_KEY}_start_job"] = False
+
+        status = st.status("🚀 Memulai proses...", expanded=True)
+        p_bar = st.progress(0)
+        log_ph = st.empty()
+
+        proc = None
+        log_f = None
+        logs = []
+        MAX_LINES = 320
+        last_line = None
+
+        start_ts = time.time()
+        tmp_json = f"temp_long_process_{time.strftime('%Y%m%d_%H%M%S')}.json"
+        tmp_runner = f"_runner_long_{time.strftime('%Y%m%d_%H%M%S')}.py"
+
+        try:
+            sel_path = st.session_state.get(f"{TAB_KEY}_selected_json_path") or st.session_state.get(f"{TAB_KEY}_json_full_path")
+            if not sel_path:
+                raise RuntimeError("Path template tidak ditemukan di session_state.")
+            d0 = _load_json(sel_path)
+
+            # build final_data
+            final_data = _deepcopy_json(d0)
+            final_data["hook"] = helpers.pick_from_json_field(d0, "hook", "")
+            final_data["cta"] = helpers.pick_from_json_field(d0, "cta", "")
+
+            # attach keyword hints
+            if isinstance(kw_global, str) and kw_global.strip():
+                final_data["image_keyword"] = kw_global.strip()
+                final_data["keyword_override"] = kw_global.strip()
+
+            # attach per chapter image_keyword override
+            kwg = (kw_global or "").strip()
+            flow = final_data.get("content_flow")
+            if isinstance(flow, list) and edited:
+                for row in edited:
+                    try:
+                        idx = int(row.get("idx", 0)) - 1
+                        if idx < 0 or idx >= len(flow):
+                            continue
+
+                        seg_kw = str(row.get("image_keyword") or "").strip()
+                        if not seg_kw:
+                            continue
+
+                        # kalau global keyword ada, gabungkan supaya per segmen tetap beda
+                        kw_final = (f"{seg_kw} {kwg}".strip() if kwg else seg_kw)
+
+                        if isinstance(flow[idx], dict):
+                            flow[idx]["image_keyword"] = kw_final
+                            flow[idx]["image_query"] = kw_final
+                            flow[idx]["keyword"] = kw_final
+                            flow[idx]["query"] = kw_final
+
+                            # ✅ tambahan: beberapa engine suka baca bg.query
+                            flow[idx]["bg"] = {"query": kw_final}
+                    except Exception:
+                        continue
+
+            # persist temp json
+            with open(tmp_json, "w", encoding="utf-8") as f:
+                json.dump(final_data, f, ensure_ascii=False, indent=2)
+
+            voice_id = (st.session_state.get(f"{TAB_KEY}_tts_voice_to_use") or "").strip()
+
+            # build runner script (signature-safe)
+
+            # --- write cfg json (avoid f-string brace issues) ---
+            # --- write cfg json (avoid f-string brace issues) ---
+            ts_tag = time.strftime("%Y%m%d_%H%M%S")
+            tmp_cfg = f"temp_long_cfg_{ts_tag}.json"
+
+            legacy_root = Path(__file__).resolve().parents[1]  # .../yt-automation-onefact-ind
+            assets_bgm_dir = (legacy_root / "assets" / "bgm").resolve()
+            assets_avatars_dir = (legacy_root / "assets" / "avatars").resolve()
+
+            # ==== resolve user workspace out dir (user_data) ====
+            paths = {}
+            if isinstance(ctx, dict) and isinstance(ctx.get("paths"), dict):
+                paths = ctx["paths"] or {}
+
+            ws_root = _coerce_path(paths.get("user_root")) or Path.cwd()
+            ws_out  = _coerce_path(paths.get("out")) or (ws_root / "out")
+            ws_out.mkdir(parents=True, exist_ok=True)
+
+            ws_long_out = (ws_out / "long").resolve()
+            ws_long_out.mkdir(parents=True, exist_ok=True)
+
+            cfg = {
+                "tts_enabled": bool(tts_enabled),
+                "tts_engine": str(st.session_state.get(f"{TAB_KEY}_tts_engine_effective") or st.session_state.get(f"{TAB_KEY}_tts_engine") or "gtts"),
+                "voice_id": (st.session_state.get(f"{TAB_KEY}_tts_voice_to_use") or "").strip() or None,
+                "tts_speed": float(st.session_state.get(f"{TAB_KEY}_tts_speed_effective") or st.session_state.get(f"{TAB_KEY}_tts_speed") or 1.0),
+
+                "no_watermark": bool(not st.session_state.get(f"{TAB_KEY}_wm_on", True)),
+                "watermark_text": str(st.session_state.get(f"{TAB_KEY}_wm_handle") or "").strip(),
+                "watermark_position": str(st.session_state.get(f"{TAB_KEY}_wm_pos") or "bottom-right"),
+                "watermark_opacity": int(st.session_state.get(f"{TAB_KEY}_wm_op", 120)),
+
+                "bgm_enabled": bool(st.session_state.get(f"{TAB_KEY}_bgm_on", True)),
+                "bgm_volume": float(st.session_state.get(f"{TAB_KEY}_bgm_vol", 0.20)),
+
+                "kw_global": (str(kw_global).strip() if isinstance(kw_global, str) else "") or None,
+                "refresh_images": bool(refresh_images),
+
+                "avatar_enabled": bool(st.session_state.get(f"{TAB_KEY}_avatar_on", False)),
+                "avatar_id": str(st.session_state.get(f"{TAB_KEY}_avatar_id", "cat_v1") or "cat_v1").strip(),
+                "avatar_scale": float(st.session_state.get(f"{TAB_KEY}_avatar_scale", 0.20)),
+
+                # ✅ NEW: paths for runner
+                "repo_root": str(legacy_root),
+                "bgm_dir": str(assets_bgm_dir),
+                "avatars_dir": str(assets_avatars_dir),
+
+                "ws_out_dir": str(ws_long_out),
+                "template_name": str(selected_json),
+            }
+
+            Path(tmp_cfg).write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+
+            # --- runner script built from plain strings (NO f-string multiline) ---
+            runner_lines = [
+                "import os, json, sys, inspect, subprocess, shutil",
+                "from pathlib import Path",
+                "sys.stdout.reconfigure(line_buffering=True)",
+                f"TMP_JSON = {tmp_json!r}",
+                f"TMP_CFG  = {tmp_cfg!r}",
+                "",
+
+                "def _run(cmd):",
+                "    try:",
+                "        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)",
+                "        return p.returncode == 0, (p.stderr or '')[-2500:]",
+                "    except Exception as e:",
+                "        return False, str(e)",
+                "",
+
+                "def _mix_bgm_ffmpeg(inp_mp4: str, bgm_dir: str, vol: float) -> str:",
+                "    bgm_dir = str(bgm_dir or '').strip()",
+                "    if (not bgm_dir) or (not os.path.isdir(bgm_dir)):",
+                "        print('[BGM] bgm_dir not found:', bgm_dir, flush=True)",
+                "        return inp_mp4",
+                "    files = [os.path.join(bgm_dir, f) for f in os.listdir(bgm_dir) if f.lower().endswith('.mp3')]",
+                "    if not files:",
+                "        print('[BGM] No mp3 found in:', bgm_dir, flush=True)",
+                "        return inp_mp4",
+                "    import random",
+                "    bgm = random.choice(files)",
+                "    out_mp4 = str(Path(inp_mp4).with_name(Path(inp_mp4).stem + '_bgm.mp4'))",
+                "    af = (",
+                "        f\"[0:a]volume=1.0[a0];\"",
+                "        f\"[1:a]volume={float(vol):.3f}[bgm];\"",
+                "        f\"[a0][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]\"",
+                "    )",
+                "    cmd = [",
+                "        'ffmpeg','-y',",
+                "        '-i', inp_mp4,",
+                "        '-stream_loop','-1','-i', bgm,",
+                "        '-filter_complex', af,",
+                "        '-map','0:v:0','-map','[aout]',",
+                "        '-c:v','copy',",
+                "        '-c:a','aac','-b:a','128k',",
+                "        '-movflags','+faststart',",
+                "        out_mp4",
+                "    ]",
+                "    ok, err = _run(cmd)",
+                "    if not ok:",
+                "        print('[BGM][WARN] ffmpeg mix failed:', err, flush=True)",
+                "        return inp_mp4",
+                "    print('[BGM] mixed:', bgm, '->', out_mp4, flush=True)",
+                "    return out_mp4",
+                "",
+
+                "def _apply_avatar_postprocess(mp4_path: str, avatar_id: str, scale: float, avatars_root: str) -> str:",
+                "    if (not mp4_path) or (not os.path.exists(mp4_path)):",
+                "        print('[AVATAR][WARN] mp4 not found, skip', flush=True)",
+                "        return mp4_path",
+                "    if shutil.which('rhubarb') is None:",
+                "        print('[AVATAR][WARN] rhubarb not found in PATH, skip', flush=True)",
+                "        return mp4_path",
+                "    avatar_root = Path(str(avatars_root or 'assets/avatars')).expanduser().resolve()",
+                "    avatar_dir = (avatar_root / str(avatar_id)).resolve()",
+                "    base_png = avatar_dir / 'char_base_cat.png'",
+                "    if not base_png.exists():",
+                "        print('[AVATAR][WARN] base png missing:', str(base_png), flush=True)",
+                "        return mp4_path",
+                "    work = Path(mp4_path).resolve().parent / '_avatar_tmp'",
+                "    work.mkdir(parents=True, exist_ok=True)",
+                "    wav = work / 'audio.wav'",
+                "    cues = work / 'mouth_cues.json'",
+                "    ok, err = _run(['ffmpeg','-y','-i', mp4_path, '-vn', '-ac','1','-ar','48000', str(wav)])",
+                "    if (not ok) or (not wav.exists()):",
+                "        print('[AVATAR][WARN] ffmpeg wav fail:', err, flush=True)",
+                "        return mp4_path",
+                "    ok, err = _run(['rhubarb','-r','phonetic','-f','json','-o', str(cues), str(wav)])",
+                "    if (not ok) or (not cues.exists()):",
+                "        print('[AVATAR][WARN] rhubarb fail:', err, flush=True)",
+                "        return mp4_path",
+                "    try:",
+                "        import json as _json",
+                "        from moviepy import VideoFileClip, ImageClip, CompositeVideoClip",
+                "",
+                "        def _dur(c, d):",
+                "            return c.with_duration(d) if hasattr(c, 'with_duration') else c.set_duration(d)",
+                "        def _start(c, t):",
+                "            return c.with_start(t) if hasattr(c, 'with_start') else c.set_start(t)",
+                "        def _pos(c, p):",
+                "            if hasattr(c, 'with_position'): return c.with_position(p)",
+                "            if hasattr(c, 'set_position'): return c.set_position(p)",
+                "            if hasattr(c, 'set_pos'): return c.set_pos(p)",
+                "            return c",
+                "        def _aud(c, a):",
+                "            return c.with_audio(a) if hasattr(c, 'with_audio') else c.set_audio(a)",
+                "        def _resize_h(c, h):",
+                "            if hasattr(c, 'resize'): return c.resize(height=h)",
+                "            if hasattr(c, 'resized'): return c.resized(height=h)",
+                "            return c",
+                "",
+                "        v = VideoFileClip(mp4_path)",
+                "        dur = float(getattr(v, 'duration', 0.0) or 0.0)",
+                "        fps0 = int(getattr(v, 'fps', 30) or 30)",
+                "",
+                "        data = _json.loads(cues.read_text(encoding='utf-8'))",
+                "        mouth_cues = data.get('mouthCues', [])",
+                "",
+                "        base = ImageClip(str(base_png))",
+                "        base = _dur(base, dur)",
+                "        layers = [base]",
+                "",
+                "        for cue in mouth_cues:",
+                "            stt = float(cue.get('start', 0))",
+                "            enn = float(cue.get('end', stt))",
+                "            if enn <= stt: continue",
+                "            mouth_png = avatar_dir / ('mouth_%s.png' % (str(cue.get('value') or 'X').strip()))",
+                "            if mouth_png.exists():",
+                "                ic = ImageClip(str(mouth_png))",
+                "                ic = _start(ic, stt)",
+                "                ic = _dur(ic, enn - stt)",
+                "                layers.append(ic)",
+                "",
+                "        avatar = CompositeVideoClip(layers, size=base.size)",
+                "        avatar = _dur(avatar, dur)",
+                "",
+                "        target_h = max(80, int(v.h * float(scale)))",
+                "        avatar = _resize_h(avatar, target_h)",
+                "        mx = int(v.w * 0.02); my = int(v.h * 0.02)",
+                "        avatar = _pos(avatar, (v.w - avatar.w - mx, v.h - avatar.h - my))",
+                "",
+                "        out = CompositeVideoClip([v, avatar], size=v.size)",
+                "        out = _dur(out, dur)",
+                "        out = _aud(out, v.audio)",
+                "",
+                "        out_path = str(Path(mp4_path).with_name(Path(mp4_path).stem + '_avatar.mp4'))",
+                "        out.write_videofile(",
+                "            out_path,",
+                "            fps=fps0,",
+                "            codec='libx264',",
+                "            audio_codec='aac',",
+                "            preset='ultrafast',",
+                "            bitrate='3000k',",
+                "            audio_bitrate='128k',",
+                "            threads=2,",
+                "            ffmpeg_params=['-pix_fmt','yuv420p','-movflags','+faststart']",
+                "        )",
+                "        try: v.close(); out.close()",
+                "        except Exception: pass",
+                "        print('[AVATAR] applied ->', out_path, flush=True)",
+                "        return out_path",
+                "    except Exception as e:",
+                "        print('[AVATAR][WARN] postprocess error:', type(e).__name__, str(e), flush=True)",
+                "        return mp4_path",
+                "",
+
+                "import re",
+                "",
+                "def _relocate_output(mp4_path: str, out_dir: str, template_name: str = 'long') -> str:",
+                "    try:",
+                "        if (not mp4_path) or (not os.path.exists(mp4_path)):",
+                "            return mp4_path",
+                "        out_dir = str(out_dir or '').strip()",
+                "        if not out_dir:",
+                "            return mp4_path",
+                "        Path(out_dir).mkdir(parents=True, exist_ok=True)",
+                "",
+                "        src = Path(mp4_path).resolve()",
+                "        base = src.name",
+                "        # kalau nama sudah panjang, biarin; tapi pastikan unik",
+                "        dst = (Path(out_dir) / base).resolve()",
+                "        if dst.exists():",
+                "            ts = time.strftime('%Y%m%d_%H%M%S')",
+                "            dst = (Path(out_dir) / (src.stem + '_' + ts + src.suffix)).resolve()",
+                "",
+                "        try:",
+                "            shutil.move(str(src), str(dst))",
+                "        except Exception:",
+                "            shutil.copy2(str(src), str(dst))",
+                "",
+                "        print('[LONG] moved output ->', str(dst), flush=True)",
+                "        return str(dst)",
+                "    except Exception as e:",
+                "        print('[LONG][WARN] relocate failed:', type(e).__name__, str(e), flush=True)",
+                "        return mp4_path",
+                "",
+                "from ytlong.engine import build_long_video",
+                "data = json.loads(Path(TMP_JSON).read_text(encoding='utf-8'))",
+                "cfg  = json.loads(Path(TMP_CFG).read_text(encoding='utf-8'))",
+                "",
+
+                "repo_root = str(cfg.get('repo_root') or '').strip()",
+                "if repo_root:",
+                "    os.chdir(repo_root)",
+                "    print('[LONG] chdir ->', os.getcwd(), flush=True)",
+                "",
+
+                "# refresh images cache if requested",
+                "if bool(cfg.get('refresh_images', False)):",
+                "    try:",
+                "        shutil.rmtree('temp_long', ignore_errors=True)",
+                "        print('[IMG] temp_long cleared (refresh_images=ON)', flush=True)",
+                "    except Exception as e:",
+                "        print('[IMG][WARN] failed clear temp_long:', type(e).__name__, str(e), flush=True)",
+                "",
+
+                "kwargs = {",
+                "  'tts_enabled': bool(cfg.get('tts_enabled', True)),",
+                "  'no_tts': (not bool(cfg.get('tts_enabled', True))),",
+                "  'tts_engine': cfg.get('tts_engine'),",
+                "  'voice_id': cfg.get('voice_id'),",
+                "  'tts_speed': float(cfg.get('tts_speed', 1.0)),",
+                "  'no_watermark': bool(cfg.get('no_watermark', False)),",
+                "  'watermark_text': cfg.get('watermark_text'),",
+                "  'watermark_position': cfg.get('watermark_position'),",
+                "  'watermark_opacity': int(cfg.get('watermark_opacity', 120)),",
+                "  'bgm_enabled': bool(cfg.get('bgm_enabled', True)),",
+                "  'bgm_volume': float(cfg.get('bgm_volume', 0.20)),",
+                "  'keyword_override': cfg.get('kw_global'),",
+                "  'image_keyword': cfg.get('kw_global'),",
+                "  'query_hint': cfg.get('kw_global'),",
+                "  'refresh_images': bool(cfg.get('refresh_images', False)),",
+                "  'avatar_enabled': bool(cfg.get('avatar_enabled', False)),",
+                "  'avatar_id': cfg.get('avatar_id'),",
+                "  'avatar_position': 'bottom-right',",
+                "  'avatar_scale': float(cfg.get('avatar_scale', 0.20)),",
+                "}",
+                "",
+
+                "safe_kwargs = {}",
+                "try:",
+                "    sig = inspect.signature(build_long_video)",
+                "    allowed = set(sig.parameters.keys())",
+                "    safe_kwargs = {k:v for k,v in kwargs.items() if k in allowed}",
+                "except Exception as e:",
+                "    print('[LONG][WARN] signature inspect failed:', type(e).__name__, str(e), flush=True)",
+                "    safe_kwargs = {}",
+                "",
+
+                "print('[LONG] safe_kwargs(keys):', sorted(list(safe_kwargs.keys())), flush=True)",
+                "try:",
+                "    out = build_long_video(data, **safe_kwargs)",
+                "except TypeError as e:",
+                "    print('[LONG][WARN] call with kwargs failed:', str(e), '-> retry build_long_video(data)', flush=True)",
+                "    out = build_long_video(data)",
+                "",
+
+                "out_mp4 = None",
+                "if isinstance(out, (str, Path)):",
+                "    out_mp4 = str(out)",
+                "if (not out_mp4):",
+                "    cand = sorted([p for p in Path('.').rglob('*.mp4')], key=lambda x: x.stat().st_mtime, reverse=True)",
+                "    if cand: out_mp4 = str(cand[0].resolve())",
+                "",
+
+                "# BGM postprocess (works even if engine doesn't support bgm kwargs)",
+                "if out_mp4 and bool(cfg.get('bgm_enabled', True)):",
+                "    out_mp4 = _mix_bgm_ffmpeg(out_mp4, bgm_dir=str(cfg.get('bgm_dir') or 'assets/bgm'), vol=float(cfg.get('bgm_volume', 0.20)))",
+                "",
+
+                "# Avatar postprocess",
+                "if out_mp4 and bool(cfg.get('avatar_enabled', False)):",
+                "    out_mp4 = _apply_avatar_postprocess(out_mp4, avatar_id=str(cfg.get('avatar_id') or 'cat_v1'), scale=float(cfg.get('avatar_scale', 0.20)), avatars_root=str(cfg.get('avatars_dir') or 'assets/avatars'))",
+                "",
+                "# Move final output to user workspace (user_data)",
+                "out_mp4 = _relocate_output(out_mp4, out_dir=str(cfg.get('ws_out_dir') or ''), template_name=str(cfg.get('template_name') or 'long'))",
+                "",
+                "if out_mp4:",
+                "    print('OUTPUT_MP4:', out_mp4, flush=True)",
+            ]
+
+            runner_script = "\n".join(runner_lines)
+            Path(tmp_runner).write_text(runner_script, encoding="utf-8")
+
+
+            with open(tmp_runner, "w", encoding="utf-8") as f:
+                f.write(runner_script)
+
+            log_path = helpers.make_log_path("long")
+            st.session_state[f"{TAB_KEY}_log_path"] = log_path
+            log_f = open(log_path, "a", encoding="utf-8", buffering=1)
+
+            log_f.write(f"=== LONG VIDEO JOB START {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+            log_f.write(f"TEMPLATE: {selected_json}\n")
+            log_f.write(f"TEMPLATE_PATH: {st.session_state.get(f'{TAB_KEY}_selected_json_path') or st.session_state.get(f'{TAB_KEY}_json_full_path')}\n")
+            log_f.write(f"TMP_JSON: {tmp_json}\n")
+            log_f.write(f"TMP_RUNNER: {tmp_runner}\n")
+            log_f.write("===========================================\n")
+            log_f.flush()
+
+            status.write("⏳ Rendering berjalan...")
+            proc = helpers.run_script([sys.executable, "-u", tmp_runner])
+            helpers.save_pid(proc.pid)
+
+            log_path = helpers.make_log_path("long")
+            st.session_state[f"{TAB_KEY}_log_path"] = log_path
+            log_f = open(log_path, "a", encoding="utf-8", buffering=1)
+            log_f.write(f"=== LONG VIDEO JOB START {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+            log_f.write(f"TEMPLATE: {selected_json}\n")
+            log_f.write("===========================================\n")
+
+            # ==== DEBUG SNAPSHOT (UI + FILE) ====
+            debug_snapshot = {
+                "template_name": selected_json,
+                "template_path": st.session_state.get(f"{TAB_KEY}_selected_json_path") or st.session_state.get(f"{TAB_KEY}_json_full_path"),
+                "temp_json": tmp_json,
+                "runner_py": tmp_runner,
+                "cwd": os.getcwd(),
+                "python": sys.executable,
+                "pid": (proc.pid if proc else None),
+                "tts_enabled": bool(tts_enabled),
+                "tts_engine": str(st.session_state.get(f"{TAB_KEY}_tts_engine")),
+                "tts_voice": str(st.session_state.get(f"{TAB_KEY}_tts_voice_to_use") or ""),
+                "tts_speed": float(st.session_state.get(f"{TAB_KEY}_tts_speed", 1.0)),
+                "watermark_on": bool(st.session_state.get(f"{TAB_KEY}_wm_on", True)),
+                "watermark_text": str(st.session_state.get(f"{TAB_KEY}_wm_handle") or ""),
+                "watermark_pos": str(st.session_state.get(f"{TAB_KEY}_wm_pos") or ""),
+                "watermark_opacity": int(st.session_state.get(f"{TAB_KEY}_wm_op", 120)),
+                "bgm_on": bool(st.session_state.get(f"{TAB_KEY}_bgm_on", True)),
+                "bgm_volume": float(st.session_state.get(f"{TAB_KEY}_bgm_vol", 0.20)),
+                "avatar_on": bool(st.session_state.get(f"{TAB_KEY}_avatar_on", False)),
+                "avatar_id": str(st.session_state.get(f"{TAB_KEY}_avatar_id", "cat_v1")),
+                "avatar_scale": float(st.session_state.get(f"{TAB_KEY}_avatar_scale", 0.20)),
+                "kw_global": str(st.session_state.get(f"{TAB_KEY}_kw_global") or ""),
+                "refresh_images": bool(st.session_state.get(f"{TAB_KEY}_refresh_images", False)),
+            }
+
+            # UI panel debug (optional)
+            with st.expander("🧪 Debug Snapshot (before run)", expanded=False):
+                st.code(_fmt_kv(debug_snapshot), language="text")
+
+            _dbg_write(log_f, "=== DEBUG SNAPSHOT ===")
+            _dbg_write(log_f, _fmt_kv(debug_snapshot))
+            _dbg_write(log_f, "======================")
+
+            detected_out = None
+            last_progress = 0
+
+            while True:
+                line = proc.stdout.readline()
+                if not line and proc.poll() is not None:
+                    break
+                if not line:
+                    continue
+
+                for raw in line.replace("\r", "\n").split("\n"):
+                    clean = raw.strip()
+                    if not clean:
+                        continue
+                    if clean == last_line:
+                        continue
+                    last_line = clean
+
+                    # parse output mp4
+                    outp = _parse_output_from_log_line(clean)
+                    if outp:
+                        detected_out = outp
+                        st.session_state[f"{TAB_KEY}_last_output"] = outp
+
+                    # progress detect
+                    m = re.search(r"(\d+)%", clean)
+                    if m:
+                        progress_val = int(m.group(1))
+                        last_progress = progress_val
+                        p_bar.progress(min(max(progress_val / 100.0, 0.0), 1.0))
+                        status.update(label=f"⏳ Rendering... {progress_val}%", state="running")
+                        continue
+
+                    _dbg_write(log_f, clean)  # ✅ selalu tulis ke log
+                    logs.append(clean)
+                    if len(logs) > MAX_LINES:
+                        logs = logs[-MAX_LINES:]
+                    _render_log_placeholder(log_ph, "\n".join(logs), height=280)
+
+            elapsed = int(time.time() - start_ts)
+            mins, secs = divmod(elapsed, 60)
+            time_str = f"{mins}m {secs}s" if mins else f"{secs}s"
+
+            if proc and proc.returncode == 0:
+                p_bar.progress(1.0)
+                status.update(label=f"✅ Selesai! ({time_str})", state="complete", expanded=False)
+                st.success(f"🎬 Render selesai dalam {time_str}.")
+            elif proc and proc.returncode == -15:
+                status.update(label="🛑 Dihentikan oleh user.", state="error")
+                st.error("Proses dihentikan.")
+            else:
+                if proc and proc.returncode not in (0, -15):
+                    try:
+                        err_tail = ""
+                        if hasattr(proc, "stderr") and proc.stderr:
+                            err_tail = proc.stderr.read()[-2000:]
+                        if err_tail:
+                            st.error("STDERR (tail):")
+                            st.code(err_tail)
+                            _dbg_write(log_f, "=== STDERR TAIL ===")
+                            _dbg_write(log_f, err_tail)
+                    except Exception:
+                        pass
+
+            # preview immediately if we have output
+            outp = st.session_state.get(f"{TAB_KEY}_last_output")
+            if outp and os.path.exists(outp):
+                st.divider()
+                st.subheader("✅ Preview Output (hasil render terbaru)")
+                cA, cB = st.columns([1.2, 1])
+                with cA:
+                    st.video(outp)
+                with cB:
+                    st.write(f"**Path:** `{outp}`")
+                    st.write(f"**Size:** `{os.path.getsize(outp) / (1024*1024):.2f} MB`")
+                    with open(outp, "rb") as f:
+                        st.download_button(
+                            "⬇️ Download MP4",
+                            data=f,
+                            file_name=os.path.basename(outp),
+                            mime="video/mp4",
+                            use_container_width=True,
+                        )
+
+        except Exception as e:
+            tb = traceback.format_exc()
+            st.error(f"System Error: {type(e).__name__}: {e}")
+
+            # tulis ke log file kalau ada
+            try:
+                if log_f:
+                    log_f.write("\n=== EXCEPTION ===\n")
+                    log_f.write(tb + "\n")
+                    log_f.write("=== END EXCEPTION ===\n")
+                    log_f.flush()
+            except Exception:
+                pass
+
+        finally:
+            st.session_state[f"{TAB_KEY}_running"] = False
+            helpers.clear_pid()
+
+            # cleanup temp files
+            for fp in [tmp_runner, tmp_json, tmp_cfg]:
+                try:
+                    if fp and os.path.exists(fp):
+                        os.remove(fp)
+                except Exception:
+                    pass
+
+            try:
+                if log_f:
+                    log_f.write(f"=== JOB END {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+                    log_f.close()
+            except Exception:
+                pass
+
+       # st.rerun()
+    st.divider()
+    st.subheader("🧾 Log Long Video (Last)")
+
+    with st.expander("🧾 Log Long Video (Last)", expanded=False):
+        lp = st.session_state.get(f"{TAB_KEY}_log_path")
+        if lp and os.path.exists(lp):
+            try:
+                txt = Path(lp).read_text(encoding="utf-8", errors="ignore")
+                tail = "\n".join(txt.splitlines()[-250:])
+                st.code(tail, language="text")
+            except Exception as e:
+                st.warning(f"Gagal baca log: {e}")
+        else:
+            st.caption("Belum ada log.")
+
+    # =========================
+    # Download log
+    # =========================
+    log_path = st.session_state.get(f"{TAB_KEY}_log_path")
+    if log_path and os.path.exists(log_path):
+        with open(log_path, "rb") as f:
+            st.download_button(
+                "⬇️ Download Log Long Video",
+                data=f,
+                file_name=os.path.basename(log_path),
+                mime="text/plain",
+                use_container_width=True,
+                key=f"{TAB_KEY}_dl_log",
+            )
+
+

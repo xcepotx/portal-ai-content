@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Gurita punya tiga jantung",
+  "hook": "Kenapa hewan ini butuh 3 jantung?",
+  "cta": "Alam emang kreatif banget ya?",
+  "query": "",
+  "bg": {
+    "query": "octopus underwater realistic photo",
+    "variants": [
+      "octopus close up",
+      "giant octopus"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

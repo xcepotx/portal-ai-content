@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Ganti filter oli tiap ganti oli",
+  "hook": "Ganti oli tanpa filter? Sayang!",
+  "cta": "Filter oli kamu ikut diganti?",
+  "query": "",
+  "bg": {
+    "query": "car oil filter replacement realistic photo",
+    "variants": [
+      "engine oil filter close up",
+      "mechanic changing oil filter"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

@@ -1,0 +1,5 @@
+file '/home/ubuntu01/yt-automation-onefact-ind/temp_pexels_mix/trim_000.mp4'
+file '/home/ubuntu01/yt-automation-onefact-ind/temp_pexels_mix/trim_001.mp4'
+file '/home/ubuntu01/yt-automation-onefact-ind/temp_pexels_mix/trim_002.mp4'
+file '/home/ubuntu01/yt-automation-onefact-ind/temp_pexels_mix/trim_003.mp4'
+file '/home/ubuntu01/yt-automation-onefact-ind/temp_pexels_mix/trim_004.mp4'

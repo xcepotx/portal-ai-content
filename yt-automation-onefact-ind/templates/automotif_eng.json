@@ -1,0 +1,470 @@
+{
+  "title": "Automotive Facts",
+  "seconds": 30,
+  "facts": [
+    {
+      "title": "Low tire pressure increases fuel consumption",
+      "hook": "Your car feels fine, but fuel runs out faster?",
+      "fact": "Underinflated tires increase rolling resistance, forcing the engine to work harder.",
+      "lines": [
+        "Low pressure creates more friction on the road.",
+        "The engine needs more power to move the car.",
+        "Check tire pressure at least once a month."
+      ],
+      "cta": "When was the last time you checked your tires?",
+      "bg": {
+        "query": "car tire pressure check close up realistic photo",
+        "variants": ["car tire gauge", "checking tire pressure"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Dirty air filters reduce engine performance",
+      "hook": "Does your car feel weaker than usual?",
+      "fact": "A clogged air filter restricts airflow needed for proper combustion.",
+      "lines": [
+        "Less air means inefficient combustion.",
+        "Engine power drops noticeably.",
+        "Replacing air filters is cheap but impactful."
+      ],
+      "cta": "Is your air filter still clean?",
+      "bg": {
+        "query": "dirty car air filter realistic photo",
+        "variants": ["engine air filter", "clogged air filter"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Old engine oil loses its lubricating ability",
+      "hook": "Rarely drive your car? Oil still matters!",
+      "fact": "Engine oil degrades over time even if the car is rarely used.",
+      "lines": [
+        "Oxidation reduces oil performance.",
+        "Moisture can contaminate oil.",
+        "Change oil based on time, not just mileage."
+      ],
+      "cta": "When did you last change your oil?",
+      "bg": {
+        "query": "engine oil dipstick check realistic photo",
+        "variants": ["engine oil check", "car oil maintenance"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Driving with low fuel can damage the fuel pump",
+      "hook": "Do you wait until the fuel light turns on?",
+      "fact": "Fuel pumps rely on gasoline for cooling and lubrication.",
+      "lines": [
+        "Low fuel causes the pump to overheat.",
+        "Sediment can be sucked into the system.",
+        "Refuel before the tank gets too low."
+      ],
+      "cta": "Do you often drive on empty?",
+      "bg": {
+        "query": "low fuel warning car dashboard realistic photo",
+        "variants": ["fuel warning light", "empty fuel gauge"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Worn shock absorbers wear tires unevenly",
+      "hook": "New tires but already worn?",
+      "fact": "Weak shock absorbers prevent tires from maintaining proper road contact.",
+      "lines": [
+        "Tires bounce instead of gripping.",
+        "Uneven wear appears quickly.",
+        "Handling becomes less stable."
+      ],
+      "cta": "Have your shocks been inspected?",
+      "bg": {
+        "query": "car shock absorber leak realistic photo",
+        "variants": ["car suspension shock", "shock absorber damage"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Running the AC reduces engine power",
+      "hook": "Why does the car feel slower with AC on?",
+      "fact": "The AC compressor draws power directly from the engine.",
+      "lines": [
+        "Small engines feel it the most.",
+        "Idle RPM may rise automatically.",
+        "This is normal within limits."
+      ],
+      "cta": "Do you notice the power drop?",
+      "bg": {
+        "query": "car air conditioning compressor engine realistic photo",
+        "variants": ["car AC compressor", "engine AC system"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Weak batteries affect fuel efficiency",
+      "hook": "A battery problem can waste fuel?",
+      "fact": "A weak battery forces the alternator to work harder, increasing engine load.",
+      "lines": [
+        "Alternator draws power from the engine.",
+        "Engine load increases.",
+        "Fuel efficiency decreases."
+      ],
+      "cta": "Is your battery still healthy?",
+      "bg": {
+        "query": "car battery inspection realistic photo",
+        "variants": ["car battery close up", "automotive battery"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Bent wheels cause steering vibrations",
+      "hook": "Steering wheel shaking at speed?",
+      "fact": "Bent rims disrupt wheel balance and rotation.",
+      "lines": [
+        "Often caused by potholes.",
+        "Vibrations travel to the steering wheel.",
+        "Can damage suspension parts."
+      ],
+      "cta": "Have you hit a pothole recently?",
+      "bg": {
+        "query": "bent car wheel rim realistic photo",
+        "variants": ["bent alloy wheel", "damaged car rim"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Overheated brakes lose stopping power",
+      "hook": "Ever felt the brakes go soft?",
+      "fact": "Excessive heat reduces brake friction, a condition called brake fade.",
+      "lines": [
+        "Common on long downhill roads.",
+        "Stopping distance increases.",
+        "Engine braking helps reduce heat."
+      ],
+      "cta": "Have you experienced brake fade?",
+      "bg": {
+        "query": "car brake disc overheating realistic photo",
+        "variants": ["brake disc heat", "car braking system"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Windshield wipers affect driving safety",
+      "hook": "Rainy drive but visibility is poor?",
+      "fact": "Worn wiper blades leave water streaks on the windshield.",
+      "lines": [
+        "Visibility drops significantly.",
+        "Driving becomes dangerous.",
+        "Replace wipers at least once a year."
+      ],
+      "cta": "Are your wipers still flexible?",
+      "bg": {
+        "query": "car windshield wiper close up realistic photo",
+        "variants": ["worn windshield wiper", "car wiper blade"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Misaligned wheels make tires wear faster",
+      "hook": "Does your car pull to one side?",
+      "fact": "Poor wheel alignment causes uneven tire wear and unstable handling.",
+      "lines": [
+        "One side of the tire wears quicker.",
+        "Steering feels less precise.",
+        "Alignment checks save tire money!"
+      ],
+      "cta": "When did you last do wheel alignment?",
+      "bg": {
+        "query": "car wheel alignment service realistic photo",
+        "variants": ["wheel alignment machine", "alignment garage"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Over-tightening lug nuts can warp brake rotors",
+      "hook": "DIY tire change? Be careful!",
+      "fact": "Uneven or excessive torque on lug nuts can distort brake rotors over time.",
+      "lines": [
+        "Warped rotors cause braking vibrations.",
+        "Use a torque wrench for consistency.",
+        "Follow the manufacturer torque spec."
+      ],
+      "cta": "Do you torque your lug nuts correctly?",
+      "bg": {
+        "query": "torque wrench tightening car wheel lug nuts realistic photo",
+        "variants": ["lug nuts torque wrench", "tightening wheel bolts"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Short trips are harder on engines than long drives",
+      "hook": "Only driving 5 minutes each time?",
+      "fact": "Frequent short trips prevent the engine from reaching proper operating temperature.",
+      "lines": [
+        "Moisture and fuel dilution build up in oil.",
+        "Exhaust systems don’t dry out fully.",
+        "Occasional longer drives help a lot!"
+      ],
+      "cta": "Are your drives mostly short trips?",
+      "bg": {
+        "query": "city traffic short trip car realistic photo",
+        "variants": ["short commute driving", "urban car driving"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "A loose gas cap can trigger a check engine light",
+      "hook": "Check engine light for no reason?",
+      "fact": "A loose or damaged fuel cap can cause an EVAP leak detection fault.",
+      "lines": [
+        "Fuel vapors escape from the tank.",
+        "The EVAP system detects pressure loss.",
+        "Tighten the cap until it clicks!"
+      ],
+      "cta": "Have you checked your gas cap lately?",
+      "bg": {
+        "query": "car fuel cap close up realistic photo",
+        "variants": ["loose gas cap", "fuel filler cap"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Dirty throttle bodies can cause rough idle",
+      "hook": "Idle shaking at stoplights?",
+      "fact": "Carbon buildup in the throttle body disrupts airflow control at low RPM.",
+      "lines": [
+        "Idle becomes unstable or rough.",
+        "Throttle response can feel delayed.",
+        "Cleaning can restore smoothness!"
+      ],
+      "cta": "Have you ever cleaned your throttle body?",
+      "bg": {
+        "query": "car throttle body carbon buildup realistic photo",
+        "variants": ["dirty throttle body", "throttle body cleaning"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Old spark plugs can silently waste fuel",
+      "hook": "Fuel economy dropping slowly over time?",
+      "fact": "Worn spark plugs weaken ignition, reducing combustion efficiency.",
+      "lines": [
+        "Misfires may be subtle at first.",
+        "Acceleration feels less crisp.",
+        "Replace plugs on schedule!"
+      ],
+      "cta": "When were your spark plugs replaced?",
+      "bg": {
+        "query": "spark plugs worn vs new realistic photo",
+        "variants": ["car spark plug close up", "spark plug replacement"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Brake pads can be “fine” but still unsafe",
+      "hook": "Pads look thick, so it’s safe?",
+      "fact": "Brake pads can glaze or crack, reducing friction even with decent thickness.",
+      "lines": [
+        "Glazing happens from excessive heat.",
+        "Cracks reduce effective contact area.",
+        "Inspect pad surface, not just thickness!"
+      ],
+      "cta": "Do you check pad condition or just thickness?",
+      "bg": {
+        "query": "car brake pads inspection close up realistic photo",
+        "variants": ["brake pad glazing", "brake pad cracks"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "A dirty cabin filter weakens AC airflow",
+      "hook": "AC cold but airflow feels weak?",
+      "fact": "A clogged cabin filter restricts air entering the cabin vents.",
+      "lines": [
+        "Airflow gets weaker over time.",
+        "Windows fog more easily.",
+        "Replace cabin filters regularly!"
+      ],
+      "cta": "Have you changed your cabin filter yet?",
+      "bg": {
+        "query": "dirty cabin air filter car realistic photo",
+        "variants": ["cabin filter replacement", "clogged cabin filter"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Using the wrong engine oil viscosity can increase wear",
+      "hook": "Oil is oil, right? Not always!",
+      "fact": "Incorrect viscosity can reduce protection at cold starts or high temperatures.",
+      "lines": [
+        "Too thick may starve parts when cold.",
+        "Too thin may fail under heat and load.",
+        "Follow the manufacturer oil spec!"
+      ],
+      "cta": "Do you use the recommended oil grade?",
+      "bg": {
+        "query": "engine oil bottles viscosity labels realistic photo",
+        "variants": ["5w30 engine oil", "oil viscosity label"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Overfilling engine oil can be harmful",
+      "hook": "More oil equals better protection? Nope!",
+      "fact": "Too much oil can cause foaming and raise crankcase pressure.",
+      "lines": [
+        "Foamy oil lubricates poorly.",
+        "Seals can start leaking.",
+        "Keep oil level within the dipstick marks!"
+      ],
+      "cta": "Have you ever overfilled your oil?",
+      "bg": {
+        "query": "car engine oil dipstick overfill realistic photo",
+        "variants": ["engine oil level check", "oil dipstick close up"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Dirty radiator fins reduce cooling efficiency",
+      "hook": "Overheating in traffic for no reason?",
+      "fact": "Dust and bugs clog radiator fins, reducing airflow and heat transfer.",
+      "lines": [
+        "Air can’t pass through efficiently.",
+        "Cooling performance drops.",
+        "Gentle cleaning improves airflow!"
+      ],
+      "cta": "Have you checked your radiator fins?",
+      "bg": {
+        "query": "car radiator fins dirty bugs realistic photo",
+        "variants": ["dirty radiator fins", "radiator cleaning"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Aging rubber hoses can fail without warning",
+      "hook": "Hoses look okay… until they burst!",
+      "fact": "Rubber hoses harden and crack over time due to heat cycles and chemicals.",
+      "lines": [
+        "Coolant hoses can split suddenly.",
+        "Vacuum leaks affect performance.",
+        "Inspect hoses for softness and cracks!"
+      ],
+      "cta": "When did you last inspect your hoses?",
+      "bg": {
+        "query": "car engine rubber hose inspection realistic photo",
+        "variants": ["coolant hose crack", "engine bay hose check"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Exhaust leaks can reduce performance and raise cabin risk",
+      "hook": "Exhaust sounds louder than usual?",
+      "fact": "Leaks can confuse oxygen sensor readings and may allow fumes to enter the cabin.",
+      "lines": [
+        "Air-fuel mixture can become less accurate.",
+        "Fuel economy may worsen.",
+        "Fix leaks quickly for safety!"
+      ],
+      "cta": "Have you noticed a new exhaust smell?",
+      "bg": {
+        "query": "car exhaust leak inspection realistic photo",
+        "variants": ["exhaust pipe leak", "muffler damage"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Headlights can be dim due to bad grounds",
+      "hook": "New bulbs but still dim lights?",
+      "fact": "Corroded grounds or connectors cause voltage drop to the headlights.",
+      "lines": [
+        "Voltage drop reduces brightness.",
+        "Corrosion increases resistance.",
+        "Clean terminals and grounds!"
+      ],
+      "cta": "Have you checked your headlight wiring?",
+      "bg": {
+        "query": "car headlight wiring corrosion realistic photo",
+        "variants": ["corroded electrical connector", "car ground wire"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Old engine mounts can stress exhaust and drivetrain parts",
+      "hook": "Feeling extra vibration in the cabin?",
+      "fact": "Worn mounts allow excessive engine movement, stressing connected components.",
+      "lines": [
+        "Vibrations become more noticeable.",
+        "Exhaust flex joints can crack.",
+        "Shifts may feel rougher."
+      ],
+      "cta": "Do you feel new vibrations lately?",
+      "bg": {
+        "query": "car engine mount worn realistic photo",
+        "variants": ["engine mount replacement", "engine mount crack"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Tire age matters even if tread looks good",
+      "hook": "Tread is thick, so it’s safe? Maybe not!",
+      "fact": "Rubber hardens with age, reducing grip even if tread depth is fine.",
+      "lines": [
+        "Old tires lose wet traction.",
+        "Sidewalls can crack over time.",
+        "Check the DOT date code!"
+      ],
+      "cta": "Do you know how old your tires are?",
+      "bg": {
+        "query": "tire DOT date code close up realistic photo",
+        "variants": ["tire manufacturing date code", "tire sidewall DOT code"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Overloading your car increases heat and wear",
+      "hook": "Car packed heavy for a trip?",
+      "fact": "Excess weight increases braking distance, tire heat, and suspension stress.",
+      "lines": [
+        "Brakes work harder under load.",
+        "Tires heat up and wear faster.",
+        "Stay within the GVWR limits!"
+      ],
+      "cta": "Do you know your car’s load limit?",
+      "bg": {
+        "query": "car overloaded luggage suspension realistic photo",
+        "variants": ["heavy load car trunk", "car luggage overloaded"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Skipping car washes can accelerate paint damage",
+      "hook": "Not washing your car saves time… but costs paint!",
+      "fact": "Road salt, bird droppings, and grime can eat into clear coat and paint.",
+      "lines": [
+        "Bird droppings are surprisingly acidic.",
+        "Road salt accelerates corrosion.",
+        "Regular washes protect the finish!"
+      ],
+      "cta": "When did you last wash your car?",
+      "bg": {
+        "query": "car paint damage bird droppings realistic photo",
+        "variants": ["car clear coat damage", "dirty car paint close up"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Parking with the wheels turned can stress steering parts",
+      "hook": "Always leaving your wheels fully turned?",
+      "fact": "Keeping steering at full lock for long periods can strain components in some systems.",
+      "lines": [
+        "Power steering systems can hold extra load.",
+        "Tires can develop slight flat spots.",
+        "Straighten wheels when parking if possible!"
+      ],
+      "cta": "Do you park with wheels turned often?",
+      "bg": {
+        "query": "car parked with wheels turned full lock realistic photo",
+        "variants": ["car parked curb wheels turned", "steering full lock"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    }
+  ]
+}

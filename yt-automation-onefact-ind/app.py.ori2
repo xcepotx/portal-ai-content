@@ -1,0 +1,1457 @@
+import streamlit as st
+import subprocess
+import os
+import glob
+import sys
+import time
+import random
+import json
+from pathlib import Path
+import html
+import re
+import signal
+import requests 
+from dotenv import load_dotenv, set_key  # Import baru
+from ytshorts.review_manager import REVIEW_DIR, load_project_state, update_segment_image
+from ytlong.engine import build_long_video
+import streamlit.components.v1 as components
+
+load_dotenv()
+
+st.set_page_config(
+    page_title="Content AI Automation System",
+    page_icon="🎬",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ====== HEADER + UI THEME (ONE BLOCK) ======
+st.markdown("""
+<style>
+/* =========================
+   DESIGN TOKENS
+========================= */
+:root{
+  --sidebar-w: 340px;
+  --accent: #FF4B4B;
+  --accent2: #FF8A00;
+  --text: rgba(255,255,255,0.92);
+  --muted: rgba(255,255,255,0.62);
+  --glass: rgba(255,255,255,0.06);
+}
+
+/* Hide Streamlit native header */
+header[data-testid="stHeader"] { visibility: hidden; height: 0px; }
+
+/* Give space for fixed header */
+.block-container{
+  padding-top: 7.2rem !important;
+  padding-bottom: 2rem !important;
+}
+
+/* =========================
+   SIDEBAR: STATIC (NO TOGGLE)
+========================= */
+/* remove arrows */
+[data-testid="stSidebarCollapseButton"],
+[data-testid="stSidebarCollapsedControl"],
+button[data-testid="stSidebarCollapseButton"],
+button[data-testid="stSidebarCollapsedControl"]{
+  display: none !important;
+}
+
+/* fixed width sidebar */
+section[data-testid="stSidebar"]{
+  width: var(--sidebar-w) !important;
+  min-width: var(--sidebar-w) !important;
+  display: block !important;
+  visibility: visible !important;
+  transform: none !important;
+}
+
+/* =========================
+   SIDEBAR: NAIKIN LAGI (LESS TOP PADDING)
+========================= */
+section[data-testid="stSidebar"] > div {
+  padding-top: 0rem !important;   /* dari default biasanya 1rem+ */
+}
+
+/* angkat semua konten sidebar sedikit ke atas */
+section[data-testid="stSidebar"] [data-testid="stSidebarContent"]{
+  padding-top: 0rem !important;
+  margin-top: -18px !important;   /* ✅ naikkan lagi (coba -10 sampai -22) */
+}
+
+/* hilangkan jarak atas pada elemen pertama di sidebar (header) */
+section[data-testid="stSidebar"] h1,
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3{
+  margin-top: 0.2rem !important;
+}
+
+/* =========================
+   FIXED HEADER (OFFSET AFTER SIDEBAR)
+========================= */
+.fixed-header{
+  position: fixed;
+  top: 0;
+  left: var(--sidebar-w);
+  width: calc(100% - var(--sidebar-w));
+  z-index: 9999;
+  padding: 18px 22px 16px 22px;
+  background: linear-gradient(180deg, rgba(14,17,23,0.92), rgba(14,17,23,0.65));
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+/* accent line */
+.fixed-header::after{
+  content:"";
+  position:absolute;
+  left:0; right:0; bottom:-1px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), var(--accent2), transparent);
+  opacity: 0.45;
+}
+
+/* layout */
+.h-wrap{
+  max-width: 1200px;
+  margin: 0 auto;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap: 16px;
+}
+.h-left{ display:flex; align-items:center; gap: 14px; }
+.h-right{ display:flex; align-items:center; gap: 10px; }
+
+/* brand icon */
+.h-icon{
+  width: 44px; height: 44px;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 30% 30%, rgba(255,75,75,0.55), rgba(255,255,255,0.02) 60%),
+    linear-gradient(135deg, rgba(255,75,75,0.18), rgba(255,138,0,0.10));
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+  display:flex; align-items:center; justify-content:center;
+  font-size: 20px;
+}
+
+/* title */
+.h-title{ display:flex; flex-direction:column; gap: 2px; }
+.h-title h1{
+  margin:0;
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  color: var(--text);
+}
+.h-title p{
+  margin:0;
+  font-size: 0.90rem;
+  color: var(--muted);
+}
+
+/* pills */
+.pill{
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--glass);
+  border: 1px solid rgba(255,255,255,0.10);
+  color: rgba(255,255,255,0.85);
+  font-size: 0.82rem;
+  display:flex;
+  align-items:center;
+  gap: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.22);
+}
+.dot{
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(90, 255, 155, 0.95);
+  box-shadow: 0 0 0 4px rgba(90,255,155,0.12);
+}
+.pill.accent{
+  border: 1px solid rgba(255,75,75,0.22);
+  background: linear-gradient(135deg, rgba(255,75,75,0.20), rgba(255,138,0,0.10));
+}
+.pill.accent b{ color: rgba(255,255,255,0.95); }
+
+/* =========================
+   BUTTON STYLING
+========================= */
+div.stButton > button {
+  width: 100%;
+  background-color: #FF4B4B;
+  color: white;
+  font-weight: 600;
+  border-radius: 10px;
+  height: 45px;
+  border: none;
+  transition: all 0.2s;
+}
+div.stButton > button:hover {
+  background-color: #ff1f1f;
+  transform: scale(1.01);
+  box-shadow: 0 6px 16px rgba(255, 75, 75, 0.28);
+}
+
+div.stDownloadButton > button {
+  width: 100%;
+  background-color: #2196F3;
+  color: white;
+  font-weight: 600;
+  border-radius: 10px;
+  height: 45px;
+  border: none;
+  transition: all 0.2s;
+}
+div.stDownloadButton > button:hover {
+  background-color: #0b7dda;
+  transform: scale(1.01);
+  box-shadow: 0 6px 16px rgba(33, 150, 243, 0.28);
+}
+</style>
+
+<div class="fixed-header">
+  <div class="h-wrap">
+    <div class="h-left">
+      <div class="h-icon">🎬</div>
+      <div class="h-title">
+        <h1>Content AI Automation</h1>
+        <p>Generate • Render • Review • Upload — all in one control panel</p>
+      </div>
+    </div>
+    <div class="h-right">
+      <div class="pill"><span class="dot"></span>System Ready</div>
+      <div class="pill accent">Mode: <b>Automation Studio</b></div>
+    </div>
+  </div>
+</div>
+""", unsafe_allow_html=True)
+
+
+# --- HELPER FUNCTIONS ---
+PID_FILE = "running_process.pid"
+
+LOG_DIR = "logs"
+os.makedirs(LOG_DIR, exist_ok=True)
+
+def make_log_path(prefix: str = "long") -> str:
+    ts = time.strftime("%Y%m%d_%H%M%S")
+    return os.path.join(LOG_DIR, f"{prefix}_{ts}.log")
+
+def clean_json_text(text):
+    """Membersihkan output AI dari markdown ```json dan ```"""
+    text = text.strip()
+    if text.startswith("```json"):
+        text = text[7:]
+    if text.startswith("```"):
+        text = text[3:]
+    if text.endswith("```"):
+        text = text[:-3]
+    return text.strip()
+
+def save_pid(pid):
+    """Menyimpan ID proses yang sedang berjalan ke file"""
+    with open(PID_FILE, "w") as f:
+        f.write(str(pid))
+
+def get_pid():
+    """Membaca ID proses dari file"""
+    if os.path.exists(PID_FILE):
+        with open(PID_FILE, "r") as f:
+            try:
+                return int(f.read().strip())
+            except:
+                return None
+    return None
+
+def clear_pid():
+    """Menghapus file PID setelah proses selesai"""
+    if os.path.exists(PID_FILE):
+        os.remove(PID_FILE)
+
+def kill_running_process():
+    """Membunuh proses yang tersimpan di PID file"""
+    pid = get_pid()
+    if pid:
+        try:
+            # Mengirim sinyal SIGTERM (Terminate)
+            os.kill(pid, signal.SIGTERM)
+            st.toast(f"🛑 Proses (PID: {pid}) berhasil dihentikan paksa!", icon="💀")
+        except ProcessLookupError:
+            st.warning("Proses sudah tidak ada (mungkin sudah selesai).")
+        except Exception as e:
+            st.error(f"Gagal menghentikan proses: {e}")
+        finally:
+            clear_pid()
+            if 'stop_btn_container' in locals():
+                stop_btn_container.empty()
+            #time.sleep(1)
+            #st.rerun()
+    else:
+        st.info("Tidak ada proses yang tercatat sedang berjalan.")
+
+def pick_from_json_field(data: dict, key: str, fallback=""):
+    """
+    Ambil value dari JSON:
+    - kalau string -> return string
+    - kalau list -> pilih random
+    - kalau tidak ada -> fallback
+    """
+    val = data.get(key, fallback)
+    if isinstance(val, list):
+        val = random.choice(val) if val else fallback
+    if val is None:
+        val = fallback
+    return str(val).strip()
+
+
+def get_topics():
+    """Mendapatkan list folder topic di dalam 'contents/'"""
+    contents_path = Path("contents")
+    if not contents_path.exists():
+        os.makedirs(contents_path)
+    return [d.name for d in contents_path.iterdir() if d.is_dir()]
+
+def get_latest_long_video():
+    """Ambil file mp4 terbaru dari folder results (Long Video output)."""
+    res_dir = Path("results")
+    if not res_dir.exists():
+        return None
+
+    files = list(res_dir.glob("*.mp4"))
+    if not files:
+        return None
+
+    return max(files, key=os.path.getmtime)
+
+def get_latest_video(topic):
+    """Mencari file mp4 terakhir yang dimodifikasi di folder out/topic"""
+    out_dir = Path(f"out/{topic}")
+    if not out_dir.exists():
+        return None
+    
+    files = list(out_dir.glob("*.mp4"))
+    if not files:
+        return None
+    
+    # Sort by modification time (terbaru di paling akhir)
+    latest_file = max(files, key=os.path.getmtime)
+    return latest_file
+
+def run_script(cmd_list):
+    """Menjalankan main.py sebagai subprocess dan streaming outputnya"""
+    process = subprocess.Popen(
+        cmd_list,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        universal_newlines=True
+    )
+    
+    return process
+
+# --- SIDEBAR: SETTINGS ---
+with st.sidebar:
+    st.header("⚙️ Global Settings")
+
+    # 1. Siapkan Placeholder (Wadah Kosong)
+    stop_btn_container = st.empty()
+    
+    # 2. Fungsi untuk menampilkan tombol (biar bisa dipanggil ulang nanti)
+    def show_stop_button():
+        with stop_btn_container.container():
+            st.error("⚠️ Ada proses sedang berjalan!")
+            # Gunakan key yang fix agar state-nya terjaga
+            if st.button("🛑 HENTIKAN PAKSA", type="primary", use_container_width=True, key="kill_btn_sidebar"):
+                kill_running_process()
+            st.divider()
+
+    # Cek apakah ada proses berjalan
+    if get_pid():
+        show_stop_button()
+
+    st.subheader("🎣 Hook & CTA")
+    hook_sub = st.text_input("Hook Subtitle", value="FAKTA CEPAT", key="hook_sub_sidebar")
+
+    st.subheader("🤖 Audio (TTS)")
+    tts_engine = st.selectbox("TTS Engine", ["gtts", "elevenlabs"])
+    
+    eleven_voice = ""
+    if tts_engine == "elevenlabs":
+        # Berikan keterangan agar user tahu kalau dikosongkan akan ikut main.py
+        st.info("ℹ️ Biarkan kosong untuk menggunakan **Random Pool** dari `main.py`.")
+        eleven_voice = st.text_input("Custom Voice ID (Opsional)", placeholder="Contoh: 21m00Tcm4TlvDq8ikWAM")
+        st.caption("Pastikan API Key sudah ada di .env")
+
+    st.subheader("💧 Watermark")
+    no_watermark = st.checkbox("Disable Watermark", value=False)
+    wm_handle = st.selectbox("Handle / Text", ["@AutoFactID", "@NgelucuShop", "@AutoFactWorld", "@FactoryID"])
+    wm_pos = st.selectbox("Position", ["top-right", "top-left", "bottom-right", "bottom-left"])
+    wm_opacity = st.slider("Opacity", 0, 255, 120)
+
+    st.subheader("📡 Upload & Notif")
+    enable_upload = st.checkbox("Auto Upload to YouTube", value=False)
+    enable_tg = st.checkbox("Send Telegram Report", value=False)
+    
+    with st.expander("Upload Schedule Settings"):
+        upload_date = st.text_input("Publish At", placeholder="YYYY-MM-DD HH:MM or 'today 18:00'")
+        use_prime = st.checkbox("Auto Prime Time", value=True)
+        auto_hash = st.checkbox("Auto Hashtags", value=True)
+
+    st.divider()
+    st.subheader("🧠 AI Configuration")
+    # 1. Coba ambil API Key dari Environment Variable dulu
+    env_api_key = os.getenv("GEMINI_API_KEY", "")
+    
+    # 2. Input Field (Nilai default diambil dari env jika ada)
+    gemini_api_key = st.text_input(
+        "Gemini API Key", 
+        value=env_api_key,
+        type="password", 
+        help="Dapatkan di aistudio.google.com"
+    )
+    
+    # 3. Tombol Save
+    if st.button("💾 Simpan Key Permanen"):
+        if gemini_api_key:
+            # Simpan ke file .env
+            env_path = ".env"
+            set_key(env_path, "GEMINI_API_KEY", gemini_api_key)
+            
+            # Update variable os.environ di memori saat ini juga
+            os.environ["GEMINI_API_KEY"] = gemini_api_key
+            
+            st.success("API Key tersimpan! Tidak perlu input lagi nanti.")
+            
+            # Refresh agar nilai env_api_key terupdate
+            import time
+            time.sleep(1)
+            st.rerun()
+        else:
+            st.error("Masukkan API Key dulu sebelum menyimpan.")
+
+# --- MAIN AREA ---
+
+st.divider()
+
+# TAB NAVIGASI
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "🚀 Control Panel", 
+    "📁 File Manager", 
+    "📝 Content Templates", 
+    "🎣 Hook & CTA",
+    "🖼️ Human Review",
+    "📺 Long Video Gen"
+])
+
+with tab1:
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.subheader("1. Konfigurasi Konten")
+        
+        # Topic Selection
+        topics = get_topics()
+        if not topics:
+            st.warning("Belum ada folder di 'contents/'. Buat folder baru dulu.")
+            topics = ["automotif"] 
+            
+        selected_topic = st.selectbox("Pilih Topik", topics)
+        
+        # --- DEFINISI OPSI MODE (Biar stringnya pasti sama) ---
+        MODE_SINGLE = "Single Video"
+        MODE_BATCH = "Batch Processing"
+        MODE_GENERATE = "Generate Content Only"
+        MODE_PREPARE = "Prepare Review (Human Loop)"
+        
+        mode = st.radio(
+            "Mode Operasi", 
+            [MODE_SINGLE, MODE_BATCH, MODE_GENERATE, MODE_PREPARE], 
+            horizontal=True
+        )
+        
+        # Inisialisasi Command dasar
+        cmd_args = ["python", "main.py", "--topic", selected_topic]
+
+        # --- LOGIKA MODE ---
+        
+        # 1. Mode Single
+        if mode == MODE_SINGLE:
+            st.info("Render 1 file .txt sampai jadi video MP4.")
+            txt_files = glob.glob(f"contents/{selected_topic}/*.txt")
+            txt_filenames = [os.path.basename(f) for f in txt_files]
+            
+            selected_file = st.selectbox("Pilih File .txt", txt_filenames, key="single_sel")
+            if selected_file:
+                full_path = os.path.join("contents", selected_topic, selected_file)
+                cmd_args.extend(["--file", full_path])
+                
+        # 2. Mode Batch
+        elif mode == MODE_BATCH:
+            st.info("Render banyak video sekaligus (Otomatis).")
+            limit = st.number_input("Limit Video", 1, 100, 5)
+            shuffle = st.checkbox("Acak Urutan", True)
+            skip_exist = st.checkbox("Skip yg sudah ada", True)
+            
+            cmd_args.append("--batch")
+            cmd_args.extend(["--limit", str(limit)])
+            if shuffle: cmd_args.append("--shuffle")
+            if skip_exist: cmd_args.append("--skip-existing")
+            
+        # 3. Mode Generate
+        elif mode == MODE_GENERATE:
+            st.info("Buat script .txt baru dari template JSON.")
+            gen_count = st.number_input("Jumlah Script", 1, 50, 5)
+            allow_repeat = st.checkbox("Boleh Fakta Kembar", False)
+            
+            cmd_args.extend(["--generate", str(gen_count)])
+            if allow_repeat: cmd_args.append("--allow-repeat")
+
+        # 4. Mode Prepare Review (FIXED)
+        elif mode == MODE_PREPARE:
+            st.info("Download aset (Gambar & Audio) lalu STOP untuk direview.")
+            
+            # Kita butuh pilih file juga (sama seperti Single)
+            txt_files = glob.glob(f"contents/{selected_topic}/*.txt")
+            txt_filenames = [os.path.basename(f) for f in txt_files]
+            
+            selected_file = st.selectbox("Pilih File untuk Direview", txt_filenames, key="prep_sel")
+            
+            # --- PAKSA TAMBAH FLAG ---
+            cmd_args.append("--prepare-review")
+            
+            if selected_file:
+                full_path = os.path.join("contents", selected_topic, selected_file)
+                cmd_args.extend(["--file", full_path])
+            else:
+                st.warning("⚠️ Harap pilih file .txt dulu!")
+    with col2:
+        st.subheader("2. Visual & Extra")
+        cinematic = st.checkbox("✨ Cinematic Look (Overlay)", value=False)
+        # --- TAMBAHAN ALERT / NOTIFIKASI ---
+        if cinematic:
+            st.warning("⚠️ Perhatian: Opsi ini akan membuat proses render berjalan LEBIH LAMA dari biasanya.")
+        # -----------------------------------
+
+        refresh_bg = st.checkbox("🔄 Force Refresh Backgrounds", value=False)
+        
+        # Mapping extra args
+        if cinematic: cmd_args.append("--cinematic")
+        if refresh_bg: cmd_args.append("--refresh-bg")
+        cmd_args.extend(["--hook-subtitle", hook_sub])
+        
+        # Global settings mapping
+        cmd_args.extend(["--tts", tts_engine])
+        # LOGIKA PENTING:
+        # Hanya kirim flag --eleven-voice jika user MENGISI text input.
+        # Jika kosong, flag tidak dikirim -> main.py otomatis pakai pool default.
+        if tts_engine == "elevenlabs" and eleven_voice.strip():
+            cmd_args.extend(["--eleven-voice", eleven_voice.strip()])
+        
+        if no_watermark: cmd_args.append("--no-watermark")
+        else:
+            cmd_args.extend(["--handle", wm_handle])
+            cmd_args.extend(["--watermark-position", wm_pos])
+            cmd_args.extend(["--watermark-opacity", str(wm_opacity)])
+            
+        if enable_upload:
+            cmd_args.append("--upload")
+            if upload_date: cmd_args.extend(["--publish-at", upload_date])
+            if use_prime: cmd_args.append("--prime")
+            if auto_hash: cmd_args.append("--hashtags-auto")
+            
+        if enable_tg: cmd_args.append("--tg")
+
+    st.divider()
+    
+    # --- EXECUTION SECTION ---
+    st.subheader("3. Eksekusi Program")
+    
+    run_btn = st.button("🚀 JALANKAN PROSES", use_container_width=True)
+    
+    if "process_log" not in st.session_state:
+        st.session_state.process_log = ""
+
+    if run_btn:
+        st.session_state.process_log = "" # Reset log
+        
+        # Container untuk Progress Bar & Log
+        status_text = st.empty()
+        log_container = st.empty()
+        progress_bar = st.progress(0)
+        
+        # Hapus PID lama jika ada sisa crash sebelumnya
+        clear_pid() 
+
+        try:
+            status_text.markdown("### ⏳ Sedang memproses... (Jangan tutup tab ini)")
+            
+            # [DEBUG] Tampilkan perintah yang dikirim
+            st.code(f"Perintah: {' '.join(cmd_args)}")
+
+            # Jalankan script
+            process = run_script(cmd_args)
+    
+            if mode != "Prepare Review (Human Loop)":
+                save_pid(process.pid) 
+                show_stop_button()
+            else:
+                st.info("ℹ️ Mode Prepare Review: Tombol Stop dinonaktifkan (Proses berjalan singkat).")
+        
+            # [BARU] Simpan PID agar bisa distop
+            full_output = []
+            
+            # Realtime Output processing
+            while True:
+                line = process.stdout.readline()
+                
+                # Cek jika proses mati mendadak (misal dikill dari sidebar)
+                if process.poll() is not None:
+                    break
+                    
+                if not line:
+                    break
+                    
+                if line:
+                    clean_line = line.strip()
+                    full_output.append(clean_line)
+                    
+                    # Update Log di UI (Show last 15 lines)
+                    log_text = "\n".join(full_output[-15:])
+                    log_container.code(log_text, language="bash")
+                    
+                    # --- LOGIKA PROGRESS BAR (Sama seperti sebelumnya) ---
+                    if "TTS files:" in clean_line: 
+                        progress_bar.progress(10)
+                        status_text.text("⏳ Sedang memproses Audio (TTS)...")
+                    elif "BG:" in clean_line: 
+                        progress_bar.progress(20)
+                        status_text.text("⏳ Sedang mencari Background...")
+                    elif "%" in clean_line:
+                        match = re.search(r"(\d+)%", clean_line)
+                        if match:
+                            percent = int(match.group(1))
+                            global_progress = 0.30 + (percent / 100.0 * 0.60)
+                            progress_bar.progress(min(global_progress, 0.95))
+                            status_text.text(f"⏳ Sedang merender video... ({percent}%)")
+                    elif "Uploaded:" in clean_line: 
+                        progress_bar.progress(98)
+                        status_text.text("✅ Upload berhasil!")
+                    elif "Done:" in clean_line: 
+                        progress_bar.progress(100)
+                    
+            # Cek status akhir proses
+            if process.returncode == 0:
+                progress_bar.progress(100)
+                status_text.success("✅ Proses Selesai!")
+                st.balloons()
+            elif process.returncode == -15: # Kode SIGTERM
+                status_text.error("🛑 Proses Dihentikan Paksa oleh User.")
+            else:
+                status_text.warning("⚠️ Proses selesai tapi mungkin ada error.")
+
+            # Simpan log full
+            st.session_state.process_log = "\n".join(full_output)
+
+        except Exception as e:
+            st.error(f"Terjadi Kesalahan: {e}")
+        
+        finally:
+            # [BARU] Hapus file PID setelah selesai (sukses/gagal/stop)
+            clear_pid()
+
+    # --- PREVIEW RESULT ---
+    st.divider()
+    st.subheader("📺 Preview Hasil Terakhir")
+    
+    # Cek file terbaru
+    latest_video = get_latest_video(selected_topic)
+    
+    if latest_video:
+        col_vid1, col_vid2 = st.columns([1, 1.5]) # Sesuaikan rasio kolom agar lebih pas
+        
+        with col_vid1:
+            st.video(str(latest_video))
+            
+        with col_vid2:
+            st.markdown(f"### 📄 Metadata")
+            st.write(f"**Filename:** `{latest_video.name}`")
+            st.write(f"**Size:** `{os.path.getsize(latest_video) / (1024*1024):.2f} MB`")
+            st.write(f"**Path:** `{latest_video}`")
+            st.divider()
+            
+            # Buat 2 kolom untuk tombol (Download & Delete)
+            btn_col1, btn_col2 = st.columns(2)
+            
+            with btn_col1:
+                with open(latest_video, "rb") as file:
+                    st.download_button(
+                        label="⬇️ Download",
+                        data=file,
+                        file_name=latest_video.name,
+                        mime="video/mp4",
+                        use_container_width=True
+                    )
+            
+            with btn_col2:
+                # Tombol Delete
+                if st.button("🗑️ Hapus Video", key="del_latest_preview", use_container_width=True):
+                    try:
+                        os.remove(latest_video)
+                        st.toast(f"Video '{latest_video.name}' berhasil dihapus!", icon="🗑️")
+                        time.sleep(1)
+                        st.rerun() # Refresh halaman untuk menghilangkan preview video yg sudah dihapus
+                    except Exception as e:
+                        st.error(f"Gagal menghapus: {e}")
+
+    else:
+        st.info("Belum ada video yang ditemukan di folder output topik ini.")
+
+# --- Update bagian ini di dalam with tab2: ---
+with tab2:
+    c_head, c_btn, c_clean = st.columns([5, 1, 1])
+
+    with c_head:
+        st.subheader("📁 File Manager")
+    with c_btn:
+        if st.button("🔄 Refresh", key="refresh_tab2", help="Muat ulang daftar file"):
+            st.rerun()
+    with c_clean:
+        if st.button("🧹 Bersihkan", help="Hapus file sampah .mp4 di root folder"):
+            count = 0
+            for f in os.listdir("."):
+                if "TEMP_MPY" in f and f.endswith(".mp4"):
+                    try:
+                        os.remove(f)
+                        count += 1
+                    except: pass
+            
+            if count > 0:
+                st.toast(f"Berhasil menghapus {count} file sampah!", icon="🗑️")
+                time.sleep(1)
+                st.rerun()
+            else:
+                st.toast("Folder sudah bersih.", icon="✨")
+
+    # 1. Pilih Folder Output
+    out_dirs = ["results", "contents"]
+    selected_dir = st.selectbox("Pilih Folder:", out_dirs)
+
+    topic_scan = st.selectbox("Lihat folder output:", topics, key="scan_out")
+    out_path_scan = Path(f"out/{topic_scan}")
+    
+    if out_path_scan.exists():
+        files = list(out_path_scan.glob("*.mp4"))
+        
+        if files:
+            files.sort(key=os.path.getmtime, reverse=True)
+            st.caption(f"Ditemukan {len(files)} video di folder '{topic_scan}'")
+            st.divider()
+
+            for f in files:
+                # Layout 5 Kolom: Nama(3) | Play(1) | Download(1) | Fix(1) | Delete(1)
+                c1, c2, c3, c4, c5 = st.columns([3, 0.8, 0.8, 1, 0.8])
+                
+                c1.write(f"📄 **{f.name}**")
+                
+                with c2:
+                    if st.button("▶️", key=f"prev_{f.name}", help="Preview Video"):
+                        st.video(str(f))
+                
+                with c3:
+                    with open(f, "rb") as dl_file:
+                        st.download_button("⬇️", dl_file, file_name=f.name, key=f"dl_{f.name}", help="Download Video")
+
+                # --- TOMBOL BARU: FIX WEB PLAYBACK ---
+                with c4:
+                    if st.button("🔧 Fix Play", key=f"fix_{f.name}", help="Klik jika video freeze di browser"):
+                        try:
+                            st.toast("⏳ Sedang memperbaiki format video...", icon="⚙️")
+                            
+                            # Nama file sementara
+                            temp_name = str(f).replace(".mp4", "_fixed.mp4")
+                            
+                            # Command FFmpeg untuk memaksa Pixel Format yuv420p (Browser Friendly)
+                            # -y: overwrite, -c:v libx264: video codec, -pix_fmt yuv420p: format wajib browser
+                            # -c:a copy: audio tidak perlu dirender ulang (biar cepat)
+                            cmd = [
+                                "ffmpeg", "-y", "-i", str(f),
+                                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                                "-c:a", "copy",
+                                temp_name
+                            ]
+                            
+                            subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                            
+                            # Timpa file lama dengan file baru
+                            if os.path.exists(temp_name):
+                                os.replace(temp_name, f)
+                                st.toast(f"✅ Video berhasil diperbaiki! Silakan play lagi.", icon="🎉")
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error("Gagal convert video.")
+                                
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+                # -------------------------------------
+
+                with c5:
+                    if st.button("🗑️", key=f"del_{f.name}", help="Hapus Video"):
+                        try:
+                            os.remove(f)
+                            st.toast("Video dihapus!", icon="🗑️")
+                            time.sleep(1)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Gagal: {e}")
+                
+                st.divider()
+        else:
+            st.info("📂 Folder kosong.")
+    else:
+        st.warning(f"📂 Folder belum ada.")
+
+# --- TAB 3: JSON EDITOR (RAW MODE) ---
+    with tab3:
+        st.header("📝 JSON Script Editor (Raw Mode)")
+        
+        # Folder penyimpanan
+        DEFAULT_DIR = os.path.join("templates")
+        os.makedirs(DEFAULT_DIR, exist_ok=True)
+
+        # Inisialisasi State
+        if "json_content" not in st.session_state:
+            st.session_state.json_content = '{\n  "hook": "...",\n  "lines": [\n    "Baris 1",\n    "Baris 2"\n  ]\n}'
+        if "json_filename" not in st.session_state:
+            st.session_state.json_filename = "new_script.json"
+
+        # Layout 2 Kolom
+        col_list, col_editor = st.columns([1, 2])
+
+        # --- KOLOM KIRI: FILE MANAGER ---
+        with col_list:
+            st.subheader("📂 Load File")
+            
+            # Ambil list file
+            existing_files = [f for f in os.listdir(DEFAULT_DIR) if f.endswith(".json")]
+            existing_files.sort(key=lambda x: os.path.getmtime(os.path.join(DEFAULT_DIR, x)), reverse=True)
+            
+            selected_file = st.selectbox("Pilih File:", ["-- Buat Baru --"] + existing_files)
+            
+            if st.button("📂 Load JSON", use_container_width=True):
+                if selected_file != "-- Buat Baru --":
+                    try:
+                        path = os.path.join(DEFAULT_DIR, selected_file)
+                        with open(path, "r", encoding="utf-8") as f:
+                            data = json.load(f)
+                        
+                        # Format ulang biar rapi (pretty print)
+                        pretty_json = json.dumps(data, indent=2, ensure_ascii=False)
+                        
+                        st.session_state.json_content = pretty_json
+                        st.session_state.json_filename = selected_file
+                        st.success(f"Loaded: {selected_file}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error loading: {e}")
+                else:
+                    # Reset ke template kosong
+                    st.session_state.json_content = '{\n  "hook": "Tulis Hook Disini...",\n  "lines": [\n    "Fakta 1",\n    "Fakta 2",\n    "Fakta 3"\n  ]\n}'
+                    st.session_state.json_filename = "new_script.json"
+                    st.rerun()
+
+        # --- KOLOM KANAN: RAW EDITOR ---
+        with col_editor:
+            st.subheader("✍️ Edit Source Code")
+            
+            # Input Nama File
+            new_filename = st.text_input("Nama File (.json)", value=st.session_state.json_filename)
+            
+            # Text Area JSON (Tinggi biar lega)
+            json_body = st.text_area(
+                "JSON Content", 
+                value=st.session_state.json_content, 
+                height=450,
+                help="Pastikan format JSON valid (tanda kutip dua, koma di akhir baris, kurung kurawal)."
+            )
+            
+            col_save, col_info = st.columns([1, 2])
+            
+            with col_save:
+                if st.button("💾 SIMPAN JSON", type="primary", use_container_width=True):
+                    try:
+                        # 1. Validasi JSON
+                        parsed_data = json.loads(json_body)
+                        
+                        # 2. Pastikan ekstensi .json
+                        if not new_filename.endswith(".json"):
+                            new_filename += ".json"
+                            
+                        # 3. Simpan File
+                        save_path = os.path.join(DEFAULT_DIR, new_filename)
+                        with open(save_path, "w", encoding="utf-8") as f:
+                            json.dump(parsed_data, f, indent=2, ensure_ascii=False)
+                            
+                        # 4. Update State
+                        st.session_state.json_content = json.dumps(parsed_data, indent=2, ensure_ascii=False)
+                        st.session_state.json_filename = new_filename
+                        
+                        st.success(f"✅ Tersimpan: {new_filename}")
+                        
+                        # Refresh file list
+                        import time
+                        time.sleep(0.5)
+                        st.rerun()
+                        
+                    except json.JSONDecodeError as e:
+                        st.error("❌ Format JSON Error!")
+                        st.code(f"Error di baris {e.lineno}, kolom {e.colno}: {e.msg}")
+                    except Exception as e:
+                        st.error(f"Gagal menyimpan: {e}")
+            
+            with col_info:
+                if "JSONDecodeError" in str(st.session_state.get("last_error", "")):
+                     st.warning("Cek tanda koma (,) atau tanda kutip (\")")
+
+with tab4:
+    # Layout Header + Tombol Refresh
+    c_head, c_btn = st.columns([6, 1])
+    
+    with c_head:
+        st.subheader("🎣 Edit Hook & CTA Bank")
+    with c_btn:
+        if st.button("🔄 Refresh", key="refresh_tab4", help="Muat ulang file dari disk"):
+            # --- LOGIKA FIX ---
+            if "editor_bank_json" in st.session_state:
+                del st.session_state["editor_bank_json"]
+            # ------------------
+            st.rerun()
+
+    st.info("File ini (`ytshorts/template_bank.json`) berisi koleksi Hook dan CTA global.")
+
+    # Tentukan path file
+    bank_path = Path("ytshorts/template_bank.json")
+
+    # Cek apakah file ada
+    if bank_path.exists():
+        try:
+            with open(bank_path, "r", encoding="utf-8") as f:
+                bank_content = f.read()
+            
+            # 1. Editor Area
+            edited_bank = st.text_area(
+                "Editor Template Bank (JSON):",
+                value=bank_content,
+                height=500,
+                key="editor_bank_json"
+            )
+
+            # 2. Tombol Simpan
+            if st.button("💾 Simpan Bank Hook & CTA", key="save_bank_btn"):
+                try:
+                    # Validasi JSON
+                    json_obj = json.loads(edited_bank)
+                    
+                    has_hooks = "hook_templates" in json_obj
+                    has_cta = "cta_templates" in json_obj
+                    
+                    if has_hooks and has_cta:
+                        # Simpan File
+                        with open(bank_path, "w", encoding="utf-8") as f:
+                            f.write(edited_bank)
+                        
+                        st.toast("Bank Hook & CTA berhasil diupdate!", icon="💾")
+                        st.success("✅ Perubahan disimpan!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.warning("⚠️ Struktur JSON berbeda (Key 'hook_templates' atau 'cta_templates' hilang).")
+                        # Tetap simpan jika user memaksa
+                        with open(bank_path, "w", encoding="utf-8") as f:
+                            f.write(edited_bank)
+                        st.toast("Disimpan (Warning Structure)", icon="⚠️")
+                        time.sleep(1)
+                        st.rerun()
+
+                except json.JSONDecodeError as e:
+                    st.error("❌ **Gagal Menyimpan!** Format JSON Salah.")
+                    st.error(f"Error: {e}")
+                except Exception as e:
+                    st.error(f"Error menulis file: {e}")
+
+            # 3. Preview Data Rapi
+            st.divider()
+            with st.expander("👁️ Preview Data (Visual)", expanded=True):
+                try:
+                    data_preview = json.loads(edited_bank)
+                    
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.markdown("### 🎣 Hook Templates")
+                        hooks = data_preview.get("hook_templates", [])
+                        if hooks: st.json(hooks)
+                        else: st.warning("Kosong / Key salah")
+
+                    with c2:
+                        st.markdown("### 📣 CTA Templates")
+                        cta = data_preview.get("cta_templates", [])
+                        if cta: st.json(cta)
+                        else: st.warning("Kosong / Key salah")
+                        
+                except Exception as e:
+                    st.error("Preview tidak tersedia karena format JSON error.")
+
+        except Exception as e:
+            st.error(f"Gagal membaca file: {e}")
+    else:
+        st.error(f"❌ File tidak ditemukan: `{bank_path}`")
+
+with tab5:
+    st.subheader("🖼️ Review & Fix Assets")
+    st.info("Edit gambar sebelum video dirender. Gunakan tombol 'Prepare Review' di Control Panel dulu.")
+    
+    # 1. List Projects
+    if not os.path.exists(REVIEW_DIR):
+        os.makedirs(REVIEW_DIR)
+        
+    projects = [d for d in os.listdir(REVIEW_DIR) if os.path.isdir(os.path.join(REVIEW_DIR, d))]
+    projects.sort(key=lambda x: os.path.getmtime(os.path.join(REVIEW_DIR, x)), reverse=True)
+    
+    if not projects:
+        st.warning("Belum ada project review. Silakan generate di Tab 1 dengan mode 'Prepare Only'.")
+    else:
+        selected_proj = st.selectbox("Pilih Project:", projects)
+        
+        if selected_proj:
+            state = load_project_state(selected_proj)
+            proj_path = os.path.join(REVIEW_DIR, selected_proj)
+            
+            if state:
+                st.write(f"**Topik:** {state['topic']} | **Slug:** {state['slug']}")
+                st.divider()
+                
+                # Loop per segmen (Text + Image)
+                lines = state["lines"]
+                bg_files = state["bg_files"]
+                
+                # Gunakan form agar page tidak reload setiap upload 1 gambar
+                for idx, (txt, bg_file) in enumerate(zip(lines, bg_files)):
+                    with st.container():
+                        c_img, c_txt, c_action = st.columns([2, 3, 2])
+                        
+                        # Kolom Gambar
+                        with c_img:
+                            if bg_file:
+                                full_bg_path = os.path.join(proj_path, bg_file)
+                                if os.path.exists(full_bg_path):
+                                    # [FIX FINAL] Format terbaru Streamlit: width="stretch"
+                                    # Ini menggantikan use_column_width=True dan use_container_width=True
+                                    st.image(full_bg_path, width="stretch")
+                                else:
+                                    st.error("File gambar hilang.")
+                        # Kolom Teks
+                        with c_txt:
+                            st.markdown(f"**Segmen {idx+1}**")
+                            st.info(f"🗣️ \"{txt}\"")
+                        
+                        # Kolom Ganti Gambar
+                        with c_action:
+                            new_img = st.file_uploader(
+                                f"Ganti Gambar #{idx+1}", 
+                                type=["jpg", "png", "webp"], 
+                                key=f"up_{selected_proj}_{idx}"
+                            )
+                            if new_img:
+                                if st.button(f"💾 Simpan Gambar #{idx+1}", key=f"save_img_{selected_proj}_{idx}"):
+                                    update_segment_image(selected_proj, idx, new_img)
+                                    st.success("Tersimpan!")
+                                    time.sleep(0.5)
+                                    st.rerun()
+                        
+                        st.divider()
+
+                # Tombol FINAL RENDER
+                st.header("🎬 Finalisasi")
+                
+                # Tombol Render Langsung (Tanpa Debug)
+                if st.button("🚀 Render Video Ini Sekarang", type="primary", use_container_width=True):
+                    
+                    st.toast("Memulai proses render...", icon="⏳")
+                    
+                    # 1. Konstruksi Perintah
+                    import sys
+                    # Kita gunakan sys.executable agar pasti pakai Python venv yang benar
+                    cmd_render = [sys.executable, "main.py", "--render-review", selected_proj]
+                    
+                    # Tambahan argumen opsional (jika perlu)
+                    # cmd_render.extend(["--handle", "@NamaChannel"])
+                    
+                    # 2. Eksekusi Render
+                    # Wadah Log
+                    log_container = st.empty()
+                    full_log = []
+                    
+                    try:
+                        process = subprocess.Popen(
+                            cmd_render,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT,
+                            text=True,
+                            bufsize=1,
+                            universal_newlines=True
+                        )
+                        
+                        # Streaming Log Real-time
+                        while True:
+                            line = process.stdout.readline()
+                            if not line and process.poll() is not None:
+                                break
+                            if line:
+                                clean_line = line.strip()
+                                full_log.append(clean_line)
+                                # Tampilkan 10 baris terakhir
+                                log_container.code("\n".join(full_log[-10:]), language="bash")
+                        
+                        if process.returncode == 0:
+                            st.success("✅ Render Selesai! Cek di Tab File Manager.")
+                            st.balloons()
+                            # Opsional: Auto refresh agar status terbaru muncul
+                            time.sleep(2)
+                            st.rerun()
+                        else:
+                            st.error("❌ Render Gagal/Error.")
+                            st.error("Cek log di atas untuk detail.")
+                            
+                    except Exception as e:
+                        st.error(f"Gagal menjalankan subprocess: {e}")
+
+
+with tab6:
+    st.subheader("📺 Generator Video Panjang (3-5 Menit)")
+
+    # ========= STATE =========
+    if "long_running" not in st.session_state:
+        st.session_state.long_running = False
+    if "start_long_job" not in st.session_state:
+        st.session_state.start_long_job = False
+
+    # ========= CSS (sekali saja, bukan di dalam loop) =========
+    st.markdown("""
+    <style>
+    .logbox{
+      height: 240px;
+      overflow-y: auto;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px;
+      padding: 12px;
+      background: rgba(255,255,255,0.04);
+      backdrop-filter: blur(8px);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 11px;
+      line-height: 1.45;
+      color: rgba(255,255,255,0.88);
+      margin-bottom: 16px;
+    }
+    @media (prefers-color-scheme: light){
+      .logbox{ border: 1px solid rgba(0,0,0,0.12); background: rgba(0,0,0,0.03); color: rgba(0,0,0,0.88); }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # ========= STOP BUTTON (muncul saat running) =========
+    stop_col1, stop_col2 = st.columns([1, 3])
+
+    with stop_col1:
+        if st.session_state.long_running:
+            pid = get_pid()
+            label = "🛑 STOP GENERATE" if pid else "🛑 STOP (starting...)"
+            if st.button(label, type="primary", use_container_width=True, key="stop_long_btn"):
+                # kalau PID sudah ada -> kill proses
+                if pid:
+                    kill_running_process()
+                # kalau PID belum ada -> cukup batalkan state (job belum mulai)
+                st.session_state.long_running = False
+                st.session_state.start_long_job = False
+                st.toast("Proses long video dihentikan.", icon="🛑")
+                time.sleep(0.2)
+                st.rerun()
+
+    with stop_col2:
+        if st.session_state.long_running:
+            if get_pid():
+                st.warning("⚠️ Long video sedang dirender. Klik STOP jika ingin menghentikan.")
+            else:
+                st.info("⏳ Menyiapkan proses... tombol STOP sudah aktif.")
+
+    # ========= SOURCE JSON =========
+    TEMPLATE_DIR = "templates"
+    os.makedirs(TEMPLATE_DIR, exist_ok=True)
+
+    st.markdown("### 1. Sumber Konten")
+    json_files = [f for f in os.listdir(TEMPLATE_DIR) if f.endswith(".json")]
+    json_files.sort(key=lambda x: os.path.getmtime(os.path.join(TEMPLATE_DIR, x)), reverse=True)
+
+    if not json_files:
+        st.error(f"❌ Tidak ada file .json di folder `{TEMPLATE_DIR}/`.")
+        selected_json = None
+    else:
+        selected_json = st.selectbox("Pilih File Script (JSON)", json_files, index=0, key="long_json_pick")
+
+    json_data = None
+    if selected_json:
+        full_path = os.path.join(TEMPLATE_DIR, selected_json)
+        try:
+            with open(full_path, "r", encoding="utf-8") as f:
+                json_data = json.load(f)
+            if not isinstance(json_data, dict):
+                st.error("❌ Format JSON harus berupa object (kurung kurawal {...}), bukan list.")
+                json_data = None
+        except Exception as e:
+            st.error(f"❌ Gagal memuat JSON: {e}")
+            st.code(full_path)
+            json_data = None
+
+    # ========= PREVIEW =========
+    st.markdown("### 2. Preview Data")
+    if selected_json and json_data:
+        if "last_json" not in st.session_state or st.session_state.last_json != selected_json:
+            st.session_state.active_hook = pick_from_json_field(json_data, "hook", "")
+            st.session_state.active_cta  = pick_from_json_field(json_data, "cta", "")
+            st.session_state.last_json = selected_json
+
+        preview_display = {
+            "Title": json_data.get("title", json_data.get("video_project", {}).get("judul", "Untitled")),
+            "Hook (Selected)": st.session_state.active_hook,
+            "CTA (Selected)": st.session_state.active_cta,
+            "Total Chapters": len(json_data.get("content_flow", []))
+        }
+        st.json(preview_display)
+    else:
+        st.info("Pilih file JSON untuk melihat preview.")
+
+    st.divider()
+
+    # ========= GENERATE BUTTON (set state + rerun supaya STOP muncul) =========
+    if st.button("🎥 GENERATE LONG VIDEO", type="primary", use_container_width=True, key="btn_long_generate"):
+        if not selected_json or not json_data:
+            st.error("❌ Pilih file JSON yang valid dulu!")
+            st.stop()
+
+        clear_pid()
+        st.session_state.long_running = True
+        st.session_state.start_long_job = True
+        st.session_state.long_selected_json = selected_json  # simpan pilihan
+        st.rerun()
+
+    # ========= JOB RUNNER (jalan setelah rerun) =========
+    if st.session_state.long_running and st.session_state.start_long_job:
+        import html
+
+        st.session_state.start_long_job = False  # penting: biar tidak start ulang saat rerun lain
+        start_time = time.time()
+
+        status_text = st.status("🚀 Memulai inisialisasi...", expanded=True)
+        p_bar = st.progress(0)
+        log_placeholder = st.empty()
+
+        proc = None
+
+        try:
+            # reload json terbaru dari disk (lebih aman)
+            selected_json = st.session_state.get("long_selected_json")
+            if not selected_json:
+                st.error("❌ JSON tidak ditemukan di session.")
+                st.session_state.long_running = False
+                st.stop()
+
+            full_path = os.path.join(TEMPLATE_DIR, selected_json)
+            with open(full_path, "r", encoding="utf-8") as f:
+                json_data = json.load(f)
+
+            final_data = json_data.copy()
+            final_data["hook"] = pick_from_json_field(json_data, "hook", "")
+            final_data["cta"]  = pick_from_json_field(json_data, "cta", "")
+
+            temp_json_path = "temp_long_process.json"
+            with open(temp_json_path, "w", encoding="utf-8") as tf:
+                json.dump(final_data, tf, indent=4, ensure_ascii=False)
+
+            runner_script = f"""
+import sys, json
+sys.stdout.reconfigure(line_buffering=True)
+from ytlong.engine import build_long_video
+with open("{temp_json_path}", "r", encoding="utf-8") as f:
+    data = json.load(f)
+build_long_video(
+    data,
+    tts_engine="{tts_engine}",
+    voice_id="{eleven_voice}" if "{eleven_voice}" else None,
+    no_watermark={str(no_watermark)},
+    watermark_text="{wm_handle}",
+    hook_subtitle="{hook_sub}"
+)
+"""
+            with open("_runner_long.py", "w", encoding="utf-8") as rf:
+                rf.write(runner_script)
+
+            status_text.write("⏳ Rendering sedang berjalan...")
+
+            proc = run_script([sys.executable, "-u", "_runner_long.py"])
+            save_pid(proc.pid)
+
+            logs_long = []
+            MAX_LINES = 300
+            last_log_line = None
+            status_history = set()
+
+            log_path = make_log_path("long")
+            st.session_state.long_log_path = log_path  # biar bisa ditampilkan/download
+            log_f = open(log_path, "a", encoding="utf-8", buffering=1)  # line-buffered
+
+            # header log
+            log_f.write(f"=== LONG VIDEO JOB START {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+            log_f.write(f"JSON: {selected_json}\n")
+            log_f.write(f"TTS: {tts_engine}\n")
+            log_f.write("===========================================\n")
+
+            while True:
+                line = proc.stdout.readline()
+
+                if not line and proc.poll() is not None:
+                    break
+                if not line:
+                    continue
+
+                parts = line.replace("\r", "\n").split("\n")
+
+                for p in parts:
+                    clean_l = p.strip()
+                    if not clean_l:
+                        continue
+
+                    # skip moviepy spam
+                    if "moviepy" in clean_l.lower():
+                        continue
+
+                    # anti duplicate consecutive
+                    if clean_l == last_log_line:
+                        continue
+                    last_log_line = clean_l
+
+                    # progress
+                    if "%" in clean_l or "frame_index" in clean_l:
+                        try:
+                            m = re.search(r"(\d+)%", clean_l)
+                            if m:
+                                val = int(m.group(1))
+                                p_bar.progress(min(max(val/100.0, 0.0), 1.0))
+                                status_text.update(label=f"⏳ Rendering Video... {val}%", state="running")
+                        except:
+                            pass
+                        continue
+
+                    # append log
+                    log_f.write(clean_l + "\n")
+                    logs_long.append(clean_l)
+                    if len(logs_long) > MAX_LINES:
+                        logs_long = logs_long[-MAX_LINES:]
+
+                    safe_lines = [html.escape(x) for x in logs_long]
+                    log_html = "<br>".join(safe_lines)
+                    log_placeholder.markdown(f'<div class="logbox">{log_html}</div>', unsafe_allow_html=True)
+
+                    # status detector (sekali)
+                    cl = clean_l.lower()
+                    new_status = None
+                    if "generating audio" in cl:
+                        new_status = "🎤 Membuat Suara Narator..."
+                    elif "searching image" in cl:
+                        new_status = "🖼️ Mencari Gambar..."
+                    elif "stitching" in cl:
+                        new_status = "🔗 Menggabungkan Video..."
+                    elif "rendering to:" in cl:
+                        new_status = "💾 Finalizing file..."
+
+                    if new_status and new_status not in status_history:
+                        status_text.write(new_status)
+                        status_history.add(new_status)
+
+            end_time = time.time()
+            mins, secs = divmod(int(end_time - start_time), 60)
+            time_str = f"{mins}m {secs}s" if mins > 0 else f"{secs}s"
+
+            if proc and proc.returncode == 0:
+                p_bar.progress(1.0)
+                status_text.update(label=f"✅ Selesai! (Total Waktu: {time_str})", state="complete", expanded=False)
+                st.success(f"🎬 Selesai dalam {time_str}.")
+                st.balloons()
+            elif proc and proc.returncode == -15:
+                status_text.update(label="🛑 Dihentikan oleh user.", state="error")
+                st.error("Proses dihentikan oleh user.")
+            else:
+                status_text.update(label="❌ Error", state="error")
+                st.error("Proses gagal. Cek log.")
+
+        except Exception as e:
+            st.error(f"System Error: {e}")
+        finally:
+            st.session_state.long_running = False
+            clear_pid()
+            if os.path.exists("_runner_long.py"):
+                os.remove("_runner_long.py")
+            try:
+                if "log_f" in locals() and log_f:
+                    log_f.write(f"=== JOB END {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+                    log_f.close()
+            except:
+                pass
+        # setelah selesai, rerun biar preview update
+        st.rerun()
+
+    log_path = st.session_state.get("long_log_path")
+    if log_path and os.path.exists(log_path):
+        with open(log_path, "rb") as f:
+            st.download_button(
+                "⬇️ Download Log Long Video",
+                f,
+                file_name=os.path.basename(log_path),
+                mime="text/plain",
+                use_container_width=True
+            )
+
+    # ========= PREVIEW LAST RESULT =========
+    st.divider()
+    st.subheader("📌 Video Long Terakhir (Auto Preview)")
+
+    if st.button("🔄 Refresh Preview Long Video", use_container_width=True, key="refresh_long_preview"):
+        st.rerun()
+
+    latest_long = get_latest_long_video()
+    if latest_long:
+        colA, colB = st.columns([1.2, 1])
+        with colA:
+            st.video(str(latest_long))
+        with colB:
+            st.markdown("### 📄 Info")
+            st.write(f"**Filename:** `{latest_long.name}`")
+            st.write(f"**Size:** `{os.path.getsize(latest_long) / (1024*1024):.2f} MB`")
+            st.write(f"**Path:** `{latest_long}`")
+            st.divider()
+            with open(latest_long, "rb") as f:
+                st.download_button(
+                    "⬇️ Download Video Long",
+                    f,
+                    file_name=latest_long.name,
+                    mime="video/mp4",
+                    use_container_width=True
+                )
+    else:
+        st.info("Belum ada long video di folder `results/`.")

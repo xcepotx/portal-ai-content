@@ -1,0 +1,1182 @@
+from __future__ import annotations
+
+import os
+import re
+import json
+import html 
+import shlex
+import time
+import signal
+import sys
+import hashlib
+import queue
+import threading
+import subprocess
+from dataclasses import dataclass, asdict
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+from streamlit_autorefresh import st_autorefresh
+
+import streamlit as st
+import requests
+
+try:
+    from streamlit_autorefresh import st_autorefresh as _st_autorefresh
+except Exception:
+    _st_autorefresh = None
+
+# =========================================================
+# CONFIG
+# =========================================================
+CONTENT_ROOT = Path("contents")
+FAKTA_DIR = CONTENT_ROOT / "faktaunik"
+AUTO_DIR = CONTENT_ROOT / "automotif"
+
+UPLOAD_DIR = Path("uploads/manual_images")
+MANIFEST_DIR = Path("temp/manual_manifests")
+LOGS_DIR = Path("logs")
+
+PEXELS_PHOTO_API = "https://api.pexels.com/v1/search"
+
+CHUNK_RE = re.compile(r"^\s*chunk\s*:", re.IGNORECASE)
+FRAMEIDX_RE = re.compile(r"^\s*frame_index\s*:", re.IGNORECASE)
+_FRAME_RE_1 = re.compile(r"frame[_\s-]*index\s*[:=]?\s*(\d+)\s*/\s*(\d+)", re.IGNORECASE)
+_FRAME_RE_2 = re.compile(r"frame[_\s-]*index\s*[:=]?\s*(\d+)\s*(?:of|/)\s*(\d+)", re.IGNORECASE)
+_FRAME_RE_3 = re.compile(r"frame[_\s-]*index\s*[:=]?\s*(\d+)\b", re.IGNORECASE)
+
+FRAME_TQDM_RE = re.compile(
+    r"frame_index:\s*\d{1,3}%\|.*?\|\s*(\d+)\s*/\s*(\d+)\s*\[",
+    re.IGNORECASE
+)
+
+FRAME_INDEX_TQDM_RE = re.compile(
+    r"^\s*frame_index:\s*\d{1,3}%\|.*?\|\s*(\d+)\s*/\s*(\d+)\s*\[",
+    re.IGNORECASE
+)
+
+_DONE_RE = re.compile(r"(video ready|writing video|render done|finalizing|done!)", re.IGNORECASE)
+_MP4_RE  = re.compile(r"(/[^ \n\r\t]+\.mp4)")
+
+# =========================================================
+# SESSION STATE KEYS
+# =========================================================
+K_PROC = "smr_proc_manager"
+K_RUNNING = "smr_running"
+K_PID = "smr_pid"
+K_LOG_PATH = "smr_log_path"
+K_MANIFEST_PATH = "smr_manifest_path"
+K_PROGRESS = "smr_progress"
+K_STATUS = "smr_status"
+K_IMAGES = "smr_images"  # list of {"path": str}
+K_PEXELS_RESULTS = "smr_pexels_results"
+K_PEXELS_DOWNLOADED = "smr_pexels_downloaded"     # list of file paths downloaded from pexels
+K_CLEANUP_MARK = "smr_cleanup_mark"               # marker agar cleanup cuma 1x per run
+K_PEXELS_RESULTS = "smr_pexels_results"
+K_PEXELS_DOWNLOADED = "smr_pexels_downloaded"   # file yg didownload dari Pexels (run ini)
+K_LOCAL_UPLOADED = "smr_local_uploaded"         # file yg diupload lokal (run ini)
+K_CLEANUP_MARK = "smr_cleanup_mark"             # supaya cleanup cuma 1x
+
+# =========================================================
+# UTIL
+# =========================================================
+def _cleanup_after_render(reset_pexels_query: bool = True):
+    # 1) clear hasil search pexels
+    st.session_state[K_PEXELS_RESULTS] = []
+
+    # 2) hapus file pexels yg didownload run ini
+    for p in (st.session_state.get(K_PEXELS_DOWNLOADED, []) or []):
+        try:
+            pp = Path(p)
+            if pp.exists():
+                pp.unlink()
+        except Exception:
+            pass
+    st.session_state[K_PEXELS_DOWNLOADED] = []
+
+    # 3) hapus file lokal yg diupload run ini
+    for p in (st.session_state.get(K_LOCAL_UPLOADED, []) or []):
+        try:
+            pp = Path(p)
+            if pp.exists():
+                pp.unlink()
+        except Exception:
+            pass
+    st.session_state[K_LOCAL_UPLOADED] = []
+
+    # 4) clear list image terpilih
+    st.session_state[K_IMAGES] = []
+
+    # 5) reset manifest path (biar balik ke kondisi awal)
+    st.session_state[K_MANIFEST_PATH] = None
+
+    # 6) optional reset input pexels biar fresh
+    if reset_pexels_query:
+        st.session_state.pop("smr_pexels_q", None)
+        st.session_state.pop("smr_pexels_n", None)
+        st.session_state.pop("smr_pexels_orientation", None)
+        st.session_state.pop("smr_pexels_size", None)
+
+
+def _smr_is_running() -> bool:
+    p = st.session_state.get("smr_proc")
+    return (p is not None) and (p.poll() is None)
+
+def _q_put_sys(q, msg: str):
+    ts = time.strftime("%H:%M:%S")
+    q.put(f"[SYS {ts}] {msg}")
+
+def _ensure_manual_state():
+    st.session_state.setdefault("smr_lines", [])
+    st.session_state.setdefault("smr_max_lines", 250)
+    st.session_state.setdefault("smr_reader_started", False)
+    st.session_state.setdefault("smr_done", False)
+    st.session_state.setdefault("smr_last_ui_tick", 0.0)
+
+def _reader_thread(proc, log_path: str, q, cmd: list[str]):
+    # tulis CMD + START/END label, dan (opsional) tulis output non-spam
+    with open(log_path, "a", encoding="utf-8", buffering=1) as log_f:
+        start_ts = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        # ===== START LABEL (file + logbox) =====
+        log_f.write(f"\n===== START RENDER {start_ts} =====\n")
+        log_f.write("CMD: " + shlex.join(cmd) + "\n")  # ✅ auto quote arg yang ada spasi
+        log_f.write("==================================\n")
+        _q_put_sys(q, f"START RENDER | PID={proc.pid}")
+
+        while True:
+            line = proc.stdout.readline() if proc.stdout else ""
+            if not line and proc.poll() is not None:
+                break
+            if not line:
+                continue
+
+            parts = line.replace("\r", "\n").split("\n")
+            for p in parts:
+                clean = p.strip()
+                if not clean:
+                    continue
+
+                is_chunk = bool(CHUNK_RE.match(clean))
+                is_frame = bool(FRAMEIDX_RE.match(clean))
+
+                # ===== UI realtime (queue) =====
+                # kalau kamu mau logbox tidak menampilkan chunk/frame, filter di _drain_queue_and_update
+                q.put(clean)
+
+                # ===== FILE LOG =====
+                # Skip spam chunk & frame_index
+                if is_chunk or is_frame:
+                    continue
+
+                # Kalau kamu ingin file log hanya CMD + START/END, biarkan comment ini
+                # log_f.write(clean + "\n")
+
+        rc = proc.poll()
+        end_ts = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        # ===== END LABEL (file + logbox) =====
+        log_f.write(f"===== END RENDER {end_ts} | rc={rc} =====\n")
+        _q_put_sys(q, f"END RENDER | rc={rc}")
+
+        q.put("__PROC_DONE__")
+
+
+def ___reader_thread(proc, log_path: str, q, cmd: list[str]):
+    # tulis CMD saja (dan optionally beberapa line penting selain chunk/frame_index)
+    with open(log_path, "a", encoding="utf-8", buffering=1) as log_f:
+        start_ts = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        log_f.write(f"=== MANUAL RENDER START {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+        log_f.write("CMD: " + " ".join(cmd) + "\n")
+        log_f.write("====================================================\n")
+        _q_put_sys(q, f"START RENDER | PID={proc.pid}")
+
+        while True:
+            line = proc.stdout.readline() if proc.stdout else ""
+            if not line and proc.poll() is not None:
+                break
+            if not line:
+                continue
+
+            parts = line.replace("\r", "\n").split("\n")
+            for p in parts:
+                clean = p.strip()
+                if not clean:
+                    continue
+
+                # ====== FILTER: jangan tulis chunk & frame_index ke file log ======
+                if CHUNK_RE.match(clean) or FRAMEIDX_RE.match(clean):
+                    # tapi tetap kirim ke queue untuk progress/logbox realtime (kalau kamu mau)
+                    q.put(clean)
+                    continue
+
+                # kalau kamu MAU file log HANYA CMD saja, comment baris ini:
+                # log_f.write(clean + "\n")
+
+                # UI realtime tetap dapat log “non-spam”
+                q.put(clean)
+
+        rc = proc.poll()
+        end_ts = time.strftime("%Y-%m-%d %H:%M:%S")
+
+        q.put("__PROC_DONE__")
+        log_f.write(f"=== MANUAL RENDER END {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+
+def _ensure_dirs():
+    for p in [UPLOAD_DIR, MANIFEST_DIR, LOGS_DIR, FAKTA_DIR, AUTO_DIR]:
+        p.mkdir(parents=True, exist_ok=True)
+
+
+def _ensure_state():
+    _ensure_dirs()
+    if K_PROC not in st.session_state:
+        st.session_state[K_PROC] = ProcessManager()
+    st.session_state.setdefault(K_RUNNING, False)
+    st.session_state.setdefault(K_PID, None)
+    st.session_state.setdefault(K_LOG_PATH, None)
+    st.session_state.setdefault(K_MANIFEST_PATH, None)
+    st.session_state.setdefault(K_PROGRESS, 0)
+    st.session_state.setdefault(K_STATUS, "Idle")
+    st.session_state.setdefault(K_IMAGES, [])
+    st.session_state.setdefault("smr_frame_total", None)   # total frames kalau ketemu
+    st.session_state.setdefault("smr_frame_max", 0)        # max frame_index yang pernah terlihat
+    st.session_state.setdefault("smr_frame_cur", 0)
+    st.session_state.setdefault("smr_frame_tot", 0)
+    st.session_state.setdefault("smr_progress", 0)
+    st.session_state.setdefault(K_PEXELS_RESULTS, [])
+    st.session_state.setdefault(K_PEXELS_DOWNLOADED, [])
+    st.session_state.setdefault(K_CLEANUP_MARK, None)
+    st.session_state.setdefault(K_PEXELS_RESULTS, [])
+    st.session_state.setdefault(K_PEXELS_DOWNLOADED, [])
+    st.session_state.setdefault(K_LOCAL_UPLOADED, [])
+    st.session_state.setdefault(K_CLEANUP_MARK, None)
+    st.session_state.setdefault("smr_output_mp4", None)
+
+def _list_txt_files(folder: Path) -> List[Path]:
+    if not folder.exists():
+        return []
+    return sorted([p for p in folder.glob("*.txt") if p.is_file()])
+
+
+def _preview_txt(path: Path, max_lines: int = 10) -> str:
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        head = lines[:max_lines]
+        return "\n".join(head) if head else "(file kosong)"
+    except Exception as e:
+        return f"(gagal baca file: {e})"
+
+
+def _images_as_paths() -> List[Path]:
+    imgs = st.session_state.get(K_IMAGES, [])
+    out: List[Path] = []
+    for it in imgs:
+        p = Path(it["path"])
+        if p.exists():
+            out.append(p)
+    return out
+
+
+def _move_image(idx: int, direction: int):
+    imgs = st.session_state[K_IMAGES]
+    j = idx + direction
+    if 0 <= idx < len(imgs) and 0 <= j < len(imgs):
+        imgs[idx], imgs[j] = imgs[j], imgs[idx]
+        st.session_state[K_IMAGES] = imgs
+
+
+def _add_image_path(p: Path):
+    imgs = st.session_state[K_IMAGES]
+    if len(imgs) >= 5:
+        return
+    rp = str(Path(p).resolve())
+    if any(x["path"] == rp for x in imgs):
+        return
+    imgs.append({"path": rp})
+    st.session_state[K_IMAGES] = imgs
+
+
+def _remove_image(idx: int):
+    imgs = st.session_state[K_IMAGES]
+    if 0 <= idx < len(imgs):
+        imgs.pop(idx)
+        st.session_state[K_IMAGES] = imgs
+
+
+# =========================================================
+# LOG MANAGER
+# =========================================================
+class LogManager:
+    def __init__(self, logs_dir: Path):
+        self.logs_dir = Path(logs_dir)
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+
+    def make_log_path(self, prefix: str, slug: str, ts: str) -> Path:
+        safe_slug = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in slug)[:60] or "run"
+        name = f"{prefix}_{ts}_{safe_slug}.log"
+        return (self.logs_dir / name).resolve()
+
+    def tail(self, log_path: Path, max_lines: int = 200) -> List[str]:
+        p = Path(log_path)
+        if not p.exists():
+            return ["(log belum ada)"]
+
+        try:
+            with p.open("rb") as f:
+                f.seek(0, os.SEEK_END)
+                size = f.tell()
+                read_size = min(size, 256 * 1024)  # last 256KB
+                f.seek(-read_size, os.SEEK_END)
+                data = f.read().decode("utf-8", errors="replace")
+        except Exception as e:
+            return [f"(gagal membaca log: {e})"]
+
+        lines = data.splitlines()[-max_lines:]
+        return lines if lines else ["(log kosong)"]
+
+
+# =========================================================
+# PROGRESS PARSER
+# =========================================================
+_PERCENT_RE = re.compile(r"(\d{1,3})\s*%")
+_MP4_RE = re.compile(r"(/[^ \n\r\t]+\.mp4)")
+_READY_RE = re.compile(r"(video ready|writing video|render done|finalizing|done\!)", re.IGNORECASE)
+
+STEP_RULES: List[Tuple[re.Pattern, int]] = [
+    (re.compile(r"(load(ing)? content|reading content|parse content)", re.IGNORECASE), 5),
+    (re.compile(r"(tts|voice|gtts|elevenlabs|narration)", re.IGNORECASE), 20),
+    (re.compile(r"(download|fetch).*(image|pexels)", re.IGNORECASE), 35),
+    (re.compile(r"(prepare|compose|timeline|clips|merge)", re.IGNORECASE), 55),
+    (re.compile(r"(render|export|writing video|encoding)", re.IGNORECASE), 80),
+    (re.compile(r"(finaliz|mux|audio mix|cleanup)", re.IGNORECASE), 95),
+]
+
+
+@dataclass
+class ProgressResult:
+    percent: int
+    is_done: bool
+    output_mp4: Optional[str] = None
+    reason: Optional[str] = None
+
+
+def _clamp(n: int, lo: int = 0, hi: int = 100) -> int:
+    return max(lo, min(hi, n))
+
+
+class ProgressParser:
+    def parse(self, lines: List[str], last_percent: int = 0) -> ProgressResult:
+        if not lines:
+            return ProgressResult(percent=last_percent, is_done=False, reason="no lines")
+
+        joined = "\n".join(lines[-200:])
+
+        mp4 = None
+        m_mp4 = _MP4_RE.search(joined)
+        if m_mp4:
+            mp4 = m_mp4.group(1)
+
+        if _READY_RE.search(joined) or mp4:
+            return ProgressResult(percent=100, is_done=True, output_mp4=mp4, reason="ready/mp4")
+
+        percents = [int(m.group(1)) for m in _PERCENT_RE.finditer(joined)]
+        if percents:
+            p = _clamp(max(percents))
+            p = max(p, last_percent)  # anti mundur
+            return ProgressResult(percent=p, is_done=(p >= 100), reason="explicit %")
+
+        est = last_percent
+        for pat, value in STEP_RULES:
+            if pat.search(joined):
+                est = max(est, value)
+
+        return ProgressResult(percent=_clamp(est), is_done=False, reason="step-based")
+
+
+# =========================================================
+# MANIFEST BUILDER
+# =========================================================
+@dataclass
+class ManualManifest:
+    topic: str
+    source_txt_path: str
+    images: List[str]
+    render_options: Dict[str, Any]
+    created_at: str
+    version: str = "manual_manifest_v1"
+
+
+class ManifestBuilder:
+    def __init__(self, manifest_dir: Path):
+        self.manifest_dir = Path(manifest_dir)
+        self.manifest_dir.mkdir(parents=True, exist_ok=True)
+
+    def build(
+        self,
+        topic: str,
+        source_txt_path: Path,
+        images: List[Path],
+        render_options: Dict[str, Any],
+        created_at: str,
+        slug: str,
+    ) -> Path:
+        mf = ManualManifest(
+            topic=topic,
+            source_txt_path=str(Path(source_txt_path).resolve()),
+            images=[str(Path(p).resolve()) for p in images],
+            render_options=render_options,
+            created_at=created_at,
+        )
+
+        safe_slug = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in slug)[:60] or "manifest"
+        out_path = (self.manifest_dir / f"manual_{created_at}_{safe_slug}.json").resolve()
+
+        with out_path.open("w", encoding="utf-8") as f:
+            json.dump(asdict(mf), f, ensure_ascii=False, indent=2)
+
+        return out_path
+
+
+# =========================================================
+# PROCESS MANAGER (non-blocking + kill tree)
+# =========================================================
+@dataclass
+class ProcessInfo:
+    pid: int
+    cmd: List[str]
+    log_path: Path
+    started_at: float
+
+
+class ProcessManager:
+    def __init__(self):
+        self._proc: Optional[subprocess.Popen] = None
+        self._info: Optional[ProcessInfo] = None
+
+    def is_running(self) -> bool:
+        return self._proc is not None and (self._proc.poll() is None)
+
+    def info(self) -> Optional[ProcessInfo]:
+        return self._info
+
+    def start(self, cmd: List[str], log_path: Path, cwd: Optional[Path] = None) -> ProcessInfo:
+        if self.is_running():
+            return self._info  # type: ignore
+
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_f = open(log_path, "a", encoding="utf-8", buffering=1)
+
+        self._proc = subprocess.Popen(
+            cmd,
+            stdout=log_f,
+            stderr=subprocess.STDOUT,
+            cwd=str(cwd) if cwd else None,
+            text=True,
+            bufsize=1,
+            start_new_session=True,  # penting: bikin process group baru (Unix)
+        )
+
+        self._info = ProcessInfo(
+            pid=self._proc.pid,
+            cmd=cmd,
+            log_path=log_path,
+            started_at=time.time(),
+        )
+        return self._info
+
+    def stop(self, timeout_sec: float = 4.0) -> bool:
+        if self._proc is None:
+            return True
+        if self._proc.poll() is not None:
+            return True
+
+        pid = self._proc.pid
+
+        # SIGTERM process group (Unix) / terminate (Windows)
+        try:
+            if os.name != "nt":
+                os.killpg(pid, signal.SIGTERM)
+            else:
+                self._proc.terminate()
+        except Exception:
+            try:
+                self._proc.terminate()
+            except Exception:
+                pass
+
+        t0 = time.time()
+        while time.time() - t0 < timeout_sec:
+            if self._proc.poll() is not None:
+                return True
+            time.sleep(0.1)
+
+        # SIGKILL
+        try:
+            if os.name != "nt":
+                os.killpg(pid, signal.SIGKILL)
+            else:
+                self._proc.kill()
+        except Exception:
+            try:
+                self._proc.kill()
+            except Exception:
+                pass
+
+        time.sleep(0.2)
+        return self._proc.poll() is not None
+
+
+# =========================================================
+# PEXELS DOWNLOADER (opsional)
+# =========================================================
+@dataclass
+class PexelsPhoto:
+    id: int
+    photographer: str
+    url: str
+    src_original: str
+    src_large: str
+
+
+class PexelsDownloader:
+    def __init__(self, api_key: str, upload_dir: Path):
+        self.api_key = api_key.strip()
+        self.upload_dir = Path(upload_dir)
+        self.upload_dir.mkdir(parents=True, exist_ok=True)
+
+    def search_photos(self, query: str, per_page: int = 12, orientation: str = "portrait", size: str = "large",) -> List[PexelsPhoto]:
+        if not self.api_key:
+            return []
+        headers = {"Authorization": self.api_key, "Accept": "application/json"}
+        params = {"query": query, "per_page": per_page, "orientation": orientation, "size": size}
+        r = requests.get(PEXELS_PHOTO_API, headers=headers, params=params, timeout=20)
+        r.raise_for_status()
+        data = r.json()
+
+        photos: List[PexelsPhoto] = []
+        for p in data.get("photos", []):
+            src = p.get("src") or {}
+            photos.append(
+                PexelsPhoto(
+                    id=int(p.get("id")),
+                    photographer=str(p.get("photographer") or ""),
+                    url=str(p.get("url") or ""),
+                    src_original=str(src.get("original") or ""),
+                    src_large=str(src.get("large") or src.get("large2x") or src.get("original") or ""),
+                )
+            )
+        return photos
+
+    def _safe_name(self, url: str) -> str:
+        h = hashlib.sha1(url.encode("utf-8")).hexdigest()[:12]
+        ext = ".jpg"
+        m = re.search(r"\.(jpg|jpeg|png|webp)(\?|$)", url.lower())
+        if m:
+            ext = "." + m.group(1)
+        return f"pexels_{h}{ext}"
+
+    def download(self, photo_url: str) -> Path:
+        if not self.api_key:
+            raise RuntimeError("PEXELS_API_KEY kosong")
+
+        out = self.upload_dir / self._safe_name(photo_url)
+        if out.exists() and out.stat().st_size > 0:
+            return out
+
+        r = requests.get(photo_url, stream=True, timeout=30)
+        r.raise_for_status()
+        with out.open("wb") as f:
+            for chunk in r.iter_content(chunk_size=1024 * 128):
+                if chunk:
+                    f.write(chunk)
+        return out
+
+
+# =========================================================
+# UI HELPERS
+# =========================================================
+def _render_options_form() -> Dict[str, object]:
+    with st.expander("⚙️ Rendering Options", expanded=True):
+        handle = st.text_input("--handle", value=st.session_state.get("smr_handle", "@AutoFactID"))
+        st.session_state["smr_handle"] = handle
+
+        c1, c2 = st.columns(2)
+        with c1:
+            wm_enabled = st.toggle("Watermark aktif", value=st.session_state.get("smr_wm_enabled", True))
+            st.session_state["smr_wm_enabled"] = wm_enabled
+        with c2:
+            cinematic = st.toggle("--cinematic", value=st.session_state.get("smr_cinematic", False))
+            st.session_state["smr_cinematic"] = cinematic
+
+        wm_opacity = st.slider("--watermark-opacity (0–255)", 0, 255, int(st.session_state.get("smr_wm_opacity", 120)))
+        st.session_state["smr_wm_opacity"] = wm_opacity
+
+        wm_pos_list = ["top-right", "top-left", "bottom-right", "bottom-left"]
+        wm_pos = st.selectbox(
+            "--watermark-position",
+            wm_pos_list,
+            index=wm_pos_list.index(st.session_state.get("smr_wm_pos", "top-right")),
+        )
+        st.session_state["smr_wm_pos"] = wm_pos
+
+        hook_subtitle = st.text_input("--hook-subtitle", value=st.session_state.get("smr_hook_subtitle", "FAKTA CEPAT"))
+        st.session_state["smr_hook_subtitle"] = hook_subtitle
+
+        seconds = st.number_input("--seconds (opsional, 0=auto)", min_value=0, max_value=120, value=int(st.session_state.get("smr_seconds", 0)))
+        st.session_state["smr_seconds"] = seconds
+
+        st.markdown("#### 🔊 TTS (opsional)")
+        tts_choices = ["gtts", "elevenlabs"]
+        tts = st.selectbox("--tts", tts_choices, index=tts_choices.index(st.session_state.get("smr_tts", "gtts")))
+        st.session_state["smr_tts"] = tts
+
+        eleven_voice = ""
+        if tts == "elevenlabs":
+            eleven_voice = st.text_input("--eleven-voice", value=st.session_state.get("smr_eleven_voice", ""))
+            st.session_state["smr_eleven_voice"] = eleven_voice
+
+        return {
+            "handle": handle,
+            "no_watermark": (not wm_enabled),
+            "watermark_opacity": wm_opacity,
+            "watermark_position": wm_pos,
+            "hook_subtitle": hook_subtitle,
+            "seconds": seconds if seconds > 0 else None,
+            "cinematic": cinematic,
+            "tts": None if tts == "(none)" else tts,
+            "eleven_voice": eleven_voice if (tts == "elevenlabs" and eleven_voice.strip()) else None,
+        }
+
+
+def _opts_to_cli_args(opts: Dict[str, object]) -> List[str]:
+    args: List[str] = []
+    if opts.get("handle"):
+        args += ["--handle", str(opts["handle"])]
+
+    if opts.get("no_watermark"):
+        args += ["--no-watermark"]
+    else:
+        args += ["--watermark-opacity", str(int(opts.get("watermark_opacity", 180)))]
+        if opts.get("watermark_position"):
+            args += ["--watermark-position", str(opts["watermark_position"])]
+
+    if opts.get("hook_subtitle"):
+        args += ["--hook-subtitle", str(opts["hook_subtitle"])]
+
+    if opts.get("seconds"):
+        args += ["--seconds", str(int(opts["seconds"]))]
+
+    if opts.get("cinematic"):
+        args += ["--cinematic"]
+
+    if opts.get("tts"):
+        args += ["--tts", str(opts["tts"])]
+        if opts.get("tts") == "elevenlabs" and opts.get("eleven_voice"):
+            args += ["--eleven-voice", str(opts["eleven_voice"])]
+
+    return args
+
+
+def _render_selected_images():
+    st.markdown("### 🖼️ Images terpilih (max 5)")
+    imgs = st.session_state[K_IMAGES]
+    if not imgs:
+        st.info("Belum ada image dipilih.")
+        return
+
+    for i, it in enumerate(imgs):
+        p = Path(it["path"])
+        cols = st.columns([1.2, 2.8, 1, 1, 1])
+        with cols[0]:
+            if p.exists():
+                st.image(str(p), caption=f"#{i+1}", width=130)
+            else:
+                st.write(f"#{i+1}")
+        with cols[1]:
+            st.code(str(p), language="text")
+        with cols[2]:
+            st.button("▲", key=f"smr_up_{i}", on_click=_move_image, args=(i, -1), disabled=(i == 0))
+        with cols[3]:
+            st.button("▼", key=f"smr_down_{i}", on_click=_move_image, args=(i, 1), disabled=(i == len(imgs)-1))
+        with cols[4]:
+            st.button("🗑️", key=f"smr_del_{i}", on_click=_remove_image, args=(i,))
+
+
+def _render_local_uploader():
+    st.markdown("### ⬆️ Upload Image Lokal (opsional)")
+    files = st.file_uploader(
+        "Upload image (jpg/png/webp) - maksimal 5 total terpilih",
+        type=["jpg", "jpeg", "png", "webp"],
+        accept_multiple_files=True,
+        key="smr_local_upload",
+    )
+    if not files:
+        return
+
+    for uf in files:
+        if len(st.session_state[K_IMAGES]) >= 5:
+            st.warning("Sudah 5 images, upload berikutnya diabaikan.")
+            break
+
+        out = UPLOAD_DIR / uf.name
+        if out.exists():
+            stem = out.stem
+            suf = out.suffix
+            out = UPLOAD_DIR / f"{stem}_{int(time.time())}{suf}"
+
+        out.write_bytes(uf.getbuffer())
+        # track agar bisa dihapus setelah render selesai
+        ul = st.session_state.get(K_LOCAL_UPLOADED, [])
+        rp = str(out.resolve())
+        if rp not in ul:
+            ul.append(rp)
+        st.session_state[K_LOCAL_UPLOADED] = ul
+
+        _add_image_path(out)
+
+    st.success("Upload selesai.")
+
+
+def _render_pexels_picker(content_text: str):
+    st.markdown("### 🔎 Pexels (opsional)")
+    api_key = (os.getenv("PEXELS_API_KEY") or "").strip()
+    if not api_key:
+        st.warning("PEXELS_API_KEY belum ada. Set env var agar bisa search Pexels.")
+        st.code("PEXELS_API_KEY=YOUR_KEY", language="bash")
+        return
+
+    default_q = content_text.strip().split("\n")[0][:80] if content_text.strip() else ""
+    q = st.text_input("Keyword Pexels", value=st.session_state.get("smr_pexels_q", default_q))
+    st.session_state["smr_pexels_q"] = q
+
+    per_page = st.slider("Jumlah hasil", 6, 20, int(st.session_state.get("smr_pexels_n", 12)))
+    st.session_state["smr_pexels_n"] = per_page
+
+    c1, c2 = st.columns(2)
+    with c1:
+        orientation = st.selectbox(
+            "Orientation",
+            ["portrait", "landscape", "square"],
+            index=["portrait", "landscape", "square"].index(st.session_state.get("smr_pexels_orientation", "portrait")),
+            key="smr_pexels_orientation",
+        )
+    with c2:
+        size = st.selectbox(
+            "Size",
+            ["large", "medium", "small"],
+            index=["large", "medium", "small"].index(st.session_state.get("smr_pexels_size", "large")),
+            key="smr_pexels_size",
+        )
+
+    if "smr_pexels_results" not in st.session_state:
+        st.session_state["smr_pexels_results"] = []
+
+    if st.button("Search Pexels", key="smr_pexels_search"):
+        try:
+            dl = PexelsDownloader(api_key=api_key, upload_dir=UPLOAD_DIR)
+            ori = st.session_state.get("smr_pexels_orientation", "portrait")
+            sz  = st.session_state.get("smr_pexels_size", "large")
+            res = dl.search_photos(q, per_page=per_page)
+            st.session_state["smr_pexels_results"] = res
+        except Exception as e:
+            st.error(f"Gagal search Pexels: {e}")
+
+    results = st.session_state.get("smr_pexels_results", [])
+    if not results:
+        st.caption("Belum ada hasil Pexels.")
+        return
+
+    st.caption("Klik Download untuk memilih (maks 5).")
+    dl = PexelsDownloader(api_key=api_key, upload_dir=UPLOAD_DIR)
+
+    cols = st.columns(3)
+    for idx, photo in enumerate(results):
+        c = cols[idx % 3]
+        with c:
+            st.image(photo.src_large, caption=f"ID {photo.id} • {photo.photographer}", width="stretch")
+            if st.button("Download + Pilih", key=f"smr_px_dl_{photo.id}"):
+                if len(st.session_state[K_IMAGES]) >= 5:
+                    st.warning("Sudah 5 images. Hapus salah satu dulu.")
+                else:
+                    try:
+                        p = dl.download(photo.src_large or photo.src_original)
+                        _add_image_path(p)
+                        dl_list = st.session_state.get(K_PEXELS_DOWNLOADED, [])
+                        rp = str(Path(p).resolve())
+                        if rp not in dl_list:
+                            dl_list.append(rp)
+                        st.session_state[K_PEXELS_DOWNLOADED] = dl_list
+                        st.success(f"Downloaded: {p.name}")
+                    except Exception as e:
+                        st.error(f"Gagal download: {e}")
+
+def _drain_queue_and_update():
+    st.session_state.setdefault("smr_lines", [])
+    st.session_state.setdefault("smr_max_lines", 250)
+    st.session_state.setdefault("smr_progress", 0)
+    st.session_state.setdefault("smr_frame_total", None)
+    st.session_state.setdefault("smr_frame_max", 0)
+    st.session_state.setdefault("smr_frame_cur", 0)
+    st.session_state.setdefault("smr_frame_tot", 0)
+    st.session_state.setdefault("smr_done", False)
+
+    q = st.session_state.get("smr_q")
+    if q is None:
+        return
+
+    lines = st.session_state["smr_lines"]
+    max_lines = st.session_state["smr_max_lines"]
+
+    while True:
+        try:
+            item = q.get_nowait()
+        except Exception:
+            break
+
+        if item == "__PROC_DONE__":
+            st.session_state["smr_done"] = True
+            break
+
+        # ========== ✅ TEMPEL DI SINI: FRAME_TQDM_RE ==========
+        m = FRAME_INDEX_TQDM_RE.search(item)
+        if m:
+            cur = int(m.group(1))
+            tot = int(m.group(2))
+            if tot > 0:
+                pct = int((cur / tot) * 100)
+
+                # 100 hanya kalau cur == tot
+                if cur >= tot:
+                    st.session_state["smr_progress"] = 100
+                    st.session_state["smr_done"] = True
+                else:
+                    st.session_state["smr_progress"] = max(
+                        st.session_state.get("smr_progress", 0),
+                        min(pct, 99)
+                    )
+
+                st.session_state["smr_frame_cur"] = cur
+                st.session_state["smr_frame_tot"] = tot
+            continue
+
+        if CHUNK_RE.match(item):
+            continue
+
+        lines.append(item)
+        m_mp4 = _MP4_RE.search(item)
+        if m_mp4:
+            st.session_state["smr_output_mp4"] = m_mp4.group(1)
+        if len(lines) > max_lines:
+            lines = lines[-max_lines:]
+
+    st.session_state["smr_lines"] = lines
+
+def _poll_and_render(proc, log_path: str | None, logbox_placeholder):
+    lm = LogManager(LOGS_DIR)
+
+    # DEBUG: tampilkan file yang dibaca
+    st.write("DEBUG log_path:", log_path)
+
+    if not log_path:
+        logbox_placeholder.warning("Belum ada log path.")
+        return
+
+    p = Path(log_path)
+    st.write("DEBUG exists:", p.exists(), "size:", (p.stat().st_size if p.exists() else "-"))
+
+    lines = lm.tail(p, max_lines=250)
+    st.write("DEBUG lines:", len(lines), "last:", (lines[-1] if lines else "-"))
+
+    text = "\n".join(lines[-250:])
+    safe = (text.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;"))
+
+    logbox_placeholder.markdown(f"<div class='smr-logbox'>{safe}</div>", unsafe_allow_html=True)
+
+
+# =========================================================
+# MAIN TAB RENDER
+# =========================================================
+def render(ctx):
+    config = ctx.get("config", {})
+    _ensure_state()
+
+    st.markdown("""
+    <style>
+    .smr-logbox{
+      height: 320px;
+      overflow-y: auto;
+      border-radius: 14px;
+      padding: 12px 14px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.10);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    st.markdown(
+        """
+        <script>
+        (function() {
+          const el = window.parent.document.getElementById("smr-logbox");
+          if (el) { el.scrollTop = el.scrollHeight; }
+        })();
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
+    st.header("🎬 Single Manual Rendering")
+    st.caption("Single render via `python main.py --manual --manual-manifest <manifest>` (non-blocking) + log realtime + progress + PID + STOP.")
+
+    proc: ProcessManager = st.session_state[K_PROC]
+    running = proc.is_running()
+    st.session_state[K_RUNNING] = running
+
+    # 1) pilih content
+    st.markdown("## 1) Pilih Content .txt")
+    topic = st.selectbox("Topic", ["faktaunik", "automotif"], index=0, key="smr_topic")
+    folder = FAKTA_DIR if topic == "faktaunik" else AUTO_DIR
+
+    txt_files = _list_txt_files(folder)
+    if not txt_files:
+        st.warning(f"Tidak ada file .txt di: {folder}")
+        return
+
+    chosen = st.selectbox("Pilih file .txt", [p.name for p in txt_files], key="smr_txt_name")
+    content_path = (folder / chosen).resolve()
+
+    preview = _preview_txt(content_path, max_lines=10)
+    with st.expander("👀 **Preview Content Text:**", expanded=False):
+    #st.markdown("**Preview (10 baris pertama):**")
+        st.code(preview, language="text")
+        content_text_full = content_path.read_text(encoding="utf-8", errors="replace")
+
+    # 2) images
+    st.markdown("## 2) Pilih Images Manual (max 5)")
+    _render_local_uploader()
+    with st.expander("🔍📸 Pexels Search (opsional)", expanded=False):
+        _render_pexels_picker(content_text_full)
+    _render_selected_images()
+
+    # 4) options
+    st.markdown("## 4) Opsi Rendering")
+    opts = _render_options_form()
+
+    # 3) manifest
+    st.markdown("## 3) Generate Manifest")
+    mb = ManifestBuilder(MANIFEST_DIR)
+
+    can_manifest = (content_path.exists() and len(_images_as_paths()) > 0)
+    if not can_manifest:
+        st.info("Syarat manifest: pilih content + minimal 1 image (maks 5).")
+
+    if st.button("🧾 Generate Manifest", key="smr_gen_manifest", disabled=(not can_manifest)):
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        slug = content_path.stem
+
+        mf_path = mb.build(
+            topic=topic,
+            source_txt_path=content_path,
+            images=_images_as_paths(),
+            render_options=opts,
+            created_at=ts,
+            slug=slug,
+        )
+        st.session_state[K_MANIFEST_PATH] = str(mf_path)
+        st.success(f"Manifest dibuat: {mf_path}")
+
+    mf_path_str = st.session_state.get(K_MANIFEST_PATH)
+    #if mf_path_str:
+    #    st.markdown("**Manifest path:**")
+    #    st.code(mf_path_str, language="text")
+
+    # 5) run render
+    st.markdown("## 5) Generate / Render")
+
+    def _build_cmd_and_log() -> Tuple[List[str], Path]:
+        ts = time.strftime("%Y%m%d_%H%M%S")
+        slug = f"{topic}_{content_path.stem}"
+        lm = LogManager(LOGS_DIR)
+        log_path = lm.make_log_path(prefix="manual", slug=slug, ts=ts)
+        st.session_state[K_LOG_PATH] = str(log_path)
+
+        cmd = [
+            "python", "main.py",
+            "--manual",
+            "--manual-manifest", str(Path(mf_path_str).resolve()),
+            "--topic", topic,
+            "--file", str(content_path.resolve()),
+        ]
+        cmd += _opts_to_cli_args(opts)
+        return cmd, log_path
+
+    running = _smr_is_running()
+
+    colA, colB, colC = st.columns([2, 1, 2])
+
+    with colA:
+        start_disabled = (running or not mf_path_str)
+        if st.button("🚀 GENERATE / RENDER", key="smr_start", disabled=start_disabled):
+            # start Popen + thread
+            cmd, log_path = _build_cmd_and_log()
+            st.session_state["smr_log_path"] = str(log_path)
+            st.session_state[K_CLEANUP_MARK] = None
+            st.session_state[K_PEXELS_DOWNLOADED] = []
+            st.session_state[K_LOCAL_UPLOADED] = []
+
+            p = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+                start_new_session=True,
+            )
+
+            st.session_state["smr_proc"] = p
+            st.session_state["smr_pid"] = p.pid
+            st.session_state["smr_progress"] = 0
+            st.session_state["smr_done"] = False
+            st.session_state.setdefault("smr_lines", [])
+            st.session_state["smr_lines"] = []
+
+            # queue init + clear
+            if "smr_q" not in st.session_state:
+                st.session_state["smr_q"] = queue.Queue()
+            q = st.session_state["smr_q"]
+            while not q.empty():
+                try: q.get_nowait()
+                except: break
+
+            # start reader thread
+            t = threading.Thread(target=_reader_thread, args=(p, str(log_path), q, cmd), daemon=True)
+            t.start()
+
+            # IMPORTANT: rerun supaya STOP langsung aktif
+            st.rerun()
+
+    with colB:
+        stop_disabled = (not running)
+        if st.button("🛑 STOP", key="smr_stop", disabled=stop_disabled):
+            p = st.session_state.get("smr_proc")
+            if p and p.poll() is None:
+                try:
+                    os.killpg(p.pid, signal.SIGTERM)   # unix
+                except Exception:
+                    try: p.terminate()
+                    except Exception: pass
+
+            st.session_state["smr_done"] = True
+            st.session_state["smr_proc"] = None
+            st.session_state["smr_pid"] = None
+            st.session_state["smr_status"] = "Stopped"
+            st.rerun()
+
+    with colC:
+        st.markdown("### 📌 Status")
+        pid = st.session_state.get("smr_pid")
+        logp = st.session_state.get("smr_log_path")
+        st.write(f"**Status:** {'Running…' if running else (st.session_state.get('smr_status','Idle'))}")
+        st.write(f"**PID:** {pid if pid else '-'}")
+        st.write(f"**Log:** {logp if logp else '-'}")
+
+    st.subheader("7) Progress & Log Realtime")
+
+    progress_holder = st.empty()
+    # logbox = st.empty()
+
+    _drain_queue_and_update()
+
+    prog = int(st.session_state.get("smr_progress", 0))
+    progress_holder.progress(prog/100.0, text=f"{prog}%")
+
+    with st.expander("📜 Log Realtime (klik untuk buka/tutup)", expanded=True):
+        lines = st.session_state.get("smr_lines", [])[-250:]
+        safe = "<br>".join([html.escape(x) for x in lines])
+        st.markdown(
+            f"<div id='smr-logbox' class='smr-logbox'>{safe}</div>",
+            unsafe_allow_html=True
+        )
+
+    proc = st.session_state.get("smr_proc")
+
+    if proc and proc.poll() is None:
+        # masih running
+        time.sleep(0.5)
+        st.rerun()
+    else:
+        # sudah selesai / tidak ada proc
+        rc = None
+        try:
+            rc = proc.poll() if proc else None
+        except Exception:
+            rc = None
+
+        logp = st.session_state.get("smr_log_path") or ""
+        mark = f"{logp}|rc={rc}"
+
+        # cleanup hanya kalau render sukses (rc==0) dan belum pernah cleanup utk run ini
+        if logp and rc == 0 and st.session_state.get(K_CLEANUP_MARK) != mark:
+            st.session_state[K_CLEANUP_MARK] = mark
+
+            _cleanup_after_render(reset_pexels_query=True)
+
+            # reset proc info supaya UI benar2 balik idle
+            st.session_state["smr_proc"] = None
+            st.session_state["smr_pid"] = None
+            st.session_state["smr_status"] = "Idle"
+            st.session_state["smr_done"] = True
+            st.session_state["smr_progress"] = max(int(st.session_state.get("smr_progress", 0)), 100)
+
+            st.success("✅ Render selesai. Hasil Pexels + file download/upload sudah dibersihkan (kondisi kembali awal).")
+            st.rerun()
+
+    cur = int(st.session_state.get("smr_frame_cur", 0))
+    tot = int(st.session_state.get("smr_frame_tot", 0))
+    if tot:
+        st.caption(f"frame_index: {cur}/{tot}")
+    # 7) progress + log realtime
+    #st.markdown("## 7) Progress & Log Realtime")
+    #_poll_and_render(proc, st.session_state.get(K_LOG_PATH), logbox)
+
+    st.markdown("---")
+    st.subheader("📺 Preview Hasil Rendering")
+
+    mp4_path = st.session_state.get("smr_output_mp4")
+
+    # fallback: kalau belum ketangkap dari log, coba pakai file output terakhir di out/
+    if not mp4_path:
+        try:
+            out_dir = Path("out") / topic
+            if out_dir.exists():
+                cand = sorted(out_dir.glob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
+                if cand:
+                    mp4_path = str(cand[0].resolve())
+                    st.session_state["smr_output_mp4"] = mp4_path
+        except Exception:
+            pass
+
+    if mp4_path and Path(mp4_path).exists():
+        left, right = st.columns([1, 1])
+        with left:  # setengah halaman
+            st.video(mp4_path)
+            st.caption(mp4_path)
+        with right:
+            data = Path(mp4_path).read_bytes()
+            st.download_button("⬇️ Download MP4", data=data, file_name=Path(mp4_path).name, mime="video/mp4")
+
+    else:
+        st.info("Belum ada hasil MP4 untuk dipreview.")
+
+
+# =========================================================
+# OPTIONAL: RUN AS STANDALONE
+# =========================================================
+if __name__ == "__main__":
+    st.set_page_config(page_title="Single Manual Rendering", layout="wide")
+    render()

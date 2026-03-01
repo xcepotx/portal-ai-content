@@ -1,0 +1,28 @@
+{
+  "topic": "faktaunik",
+  "slug": "bayangin_jemur_baju_susah",
+  "lines": [
+    "Bayangin jemur baju\u2026 susah!",
+    "FAKTA: Beberapa wilayah punya curah hujan sangat tinggi karena kondisi geografis dan angin lembap.",
+    "Pegunungan memaksa awan naik dan mendingin.",
+    "Uap air cepat jadi hujan.",
+    "Musim keringnya bisa sangat singkat.",
+    "Kamu lebih suka hujan atau panas?"
+  ],
+  "tts_files": [
+    "/home/ubuntu01/yt-automation-onefact-ind/out/tts/single_gtts_tts_01_bayangin_jemur_baju_susah_727108cbf6.mp3",
+    "/home/ubuntu01/yt-automation-onefact-ind/out/tts/single_gtts_tts_02_fakta_beberapa_wilayah_punya_cur_1a85bcc5ae.mp3",
+    "/home/ubuntu01/yt-automation-onefact-ind/out/tts/single_gtts_tts_03_pegunungan_memaksa_awan_naik_dan_43ade5634d.mp3",
+    "/home/ubuntu01/yt-automation-onefact-ind/out/tts/single_gtts_tts_04_uap_air_cepat_jadi_hujan_64afb6d1e6.mp3",
+    "/home/ubuntu01/yt-automation-onefact-ind/out/tts/single_gtts_tts_05_musim_keringnya_bisa_sangat_sing_09befc2343.mp3",
+    "/home/ubuntu01/yt-automation-onefact-ind/out/tts/single_gtts_tts_06_kamu_lebih_suka_hujan_atau_panas_772aed9c07.mp3"
+  ],
+  "bg_files": [
+    "segment_000.jpg",
+    "segment_001.jpg",
+    "segment_002.jpg",
+    "segment_003.jpg"
+  ],
+  "bgm": null,
+  "status": "draft"
+}

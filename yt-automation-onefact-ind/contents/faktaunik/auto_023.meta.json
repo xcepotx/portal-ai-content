@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Ada pasir yang bisa “bernyanyi”",
+  "hook": "Pasir kok bisa bunyi?",
+  "cta": "Kalau dengar ini malam-malam, merinding gak?",
+  "query": "",
+  "bg": {
+    "query": "sand dune desert realistic photo",
+    "variants": [
+      "desert dunes",
+      "wind blowing sand"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

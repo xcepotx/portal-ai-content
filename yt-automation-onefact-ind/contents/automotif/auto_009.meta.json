@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Bersihkan interior untuk cegah jamur",
+  "hook": "Kabin lembap bikin bau dan jamur!",
+  "cta": "Kabin mobil kamu pernah bau apek?",
+  "query": "",
+  "bg": {
+    "query": "car interior cleaning vacuum realistic photo",
+    "variants": [
+      "car interior detailing",
+      "vacuum car seats"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

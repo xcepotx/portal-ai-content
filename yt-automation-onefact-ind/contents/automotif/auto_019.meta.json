@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Periksa kedalaman tapak ban",
+  "hook": "Tapak ban tipis itu bahaya banget!",
+  "cta": "Ban kamu masih tebal atau sudah mepet TWI?",
+  "query": "",
+  "bg": {
+    "query": "tire tread wear indicator TWI close up realistic photo",
+    "variants": [
+      "tire tread depth close up",
+      "worn tire tread indicator"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

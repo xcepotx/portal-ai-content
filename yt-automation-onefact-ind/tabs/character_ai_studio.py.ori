@@ -1,0 +1,477 @@
+# yt-automation-onefact-ind/tabs/character_ai_studio.py
+from __future__ import annotations
+
+import sys
+import time
+from pathlib import Path
+from typing import Optional
+import zipfile
+import traceback
+
+import streamlit as st
+from streamlit_autorefresh import st_autorefresh
+from PIL import Image
+
+from google import genai
+from google.genai import types
+
+from core.job_engine import (
+    create_job_dir,
+    spawn_job,
+    stop_job,
+    is_pid_running,
+    tail_file,
+    read_json,
+)
+
+TAB_KEY = "character_ai_studio"
+
+
+def _ws_root(ctx: dict | None) -> Path:
+    if isinstance(ctx, dict) and isinstance(ctx.get("paths"), dict) and ctx["paths"].get("user_root"):
+        return Path(ctx["paths"]["user_root"]).resolve()
+    return Path("user_data/demo").resolve()
+
+def _build_outputs_zip(job_dir: Path) -> Path:
+    job_dir = Path(job_dir).resolve()
+    src_dir = (job_dir / "outputs" / "character_ai").resolve()
+    zip_path = (job_dir / "outputs" / f"character_ai_{job_dir.name}.zip").resolve()
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as z:
+        # include outputs/character_ai
+        if src_dir.exists():
+            for p in sorted(src_dir.rglob("*")):
+                if p.is_file():
+                    z.write(p, p.relative_to(job_dir).as_posix())
+
+        # include logs/meta (optional)
+        for extra in ["job.log", "progress.json"]:
+            ep = job_dir / extra
+            if ep.exists() and ep.is_file():
+                z.write(ep, ep.relative_to(job_dir).as_posix())
+
+    return zip_path
+
+def _get_gemini_key(ctx: dict | None) -> str:
+    # 1) ambil dari effective api_keys yang sudah di-inject portal
+    if isinstance(ctx, dict):
+        api = ctx.get("api_keys") or {}
+        k = (api.get("gemini") or "").strip()
+        if k:
+            return k
+
+        # 2) fallback: dari profile langsung (kalau ada)
+        prof = ctx.get("profile") or {}
+        api2 = prof.get("api_keys") or {}
+        k = (api2.get("gemini") or "").strip()
+        if k:
+            return k
+
+    # 3) optional fallback: st.secrets (JANGAN bikin error kalau secrets.toml tidak ada)
+    try:
+        return (st.secrets.get("GEMINI_API_KEY", "") or "").strip()
+    except Exception:
+        return ""
+
+
+def _test_gemini_connection(api_key: str, model: str) -> tuple[bool, str]:
+    """
+    Return (ok, message). Test ringan:
+    1) coba response_modalities=["TEXT"] (supaya tidak generate image)
+    2) fallback response_modalities=["TEXT","IMAGE"] kalau model butuh itu
+    """
+    client = genai.Client(api_key=api_key)
+    prompt = "Reply with exactly: OK"
+
+    # Try 1: TEXT only (paling murah)
+    try:
+        resp = client.models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=["TEXT"],
+            ),
+        )
+        txt = (getattr(resp, "text", None) or "").strip()
+        if not txt:
+            parts = []
+            for p in getattr(resp, "parts", []) or []:
+                if getattr(p, "text", None):
+                    parts.append(p.text)
+            txt = ("\n".join(parts)).strip()
+
+        return True, f"✅ Connected. Model={model}. Response='{(txt or 'OK')[:120]}'"
+
+    except Exception:
+        # Try 2: TEXT+IMAGE (beberapa image model lebih “senang” begini)
+        try:
+            resp = client.models.generate_content(
+                model=model,
+                contents=prompt + "\nDo not generate any image if possible; text response is enough.",
+                config=types.GenerateContentConfig(
+                    response_modalities=["TEXT", "IMAGE"],
+                ),
+            )
+            txt = (getattr(resp, "text", None) or "").strip()
+            if not txt:
+                parts = []
+                for p in getattr(resp, "parts", []) or []:
+                    if getattr(p, "text", None):
+                        parts.append(p.text)
+                txt = ("\n".join(parts)).strip()
+
+            return True, f"✅ Connected (fallback). Model={model}. Response='{(txt or 'OK')[:120]}'"
+
+        except Exception as e2:
+            msg = f"❌ Failed. Model={model}. Error={type(e2).__name__}: {e2}"
+            # Kalau butuh detail stacktrace, uncomment:
+            # msg += "\n" + traceback.format_exc()
+            return False, msg
+
+# === Presets ===
+STYLE_PRESETS = [
+    "cinematic realistic",
+    "photorealistic studio",
+    "stylized 3D character",
+    "anime cel-shaded",
+    "comic inked",
+    "low-poly game style",
+]
+
+DESC_PRESETS = {
+    "Young adventurer (futuristic)": "young adventurer, short hair, confident, futuristic vibe, athletic build, expressive eyes",
+    "Corporate hacker (cyberpunk)": "street-smart hacker, sharp gaze, subtle cybernetic accents, minimal makeup, confident stance",
+    "Fantasy ranger": "wilderness ranger, calm and focused, weathered but kind face, agile silhouette, practical demeanor",
+    "Sci-fi pilot": "space pilot, disciplined posture, slightly tired eyes, heroic but grounded, clean facial features",
+    "Cute mascot hero": "friendly heroic mascot, big expressive eyes, approachable smile, simplified shapes, high readability",
+}
+
+OUTFIT_PRESETS = [
+    "utility jacket, sneakers, small backpack",
+    "sleek tactical suit, gloves, boots",
+    "hoodie layered with techwear vest, cargo pants",
+    "fantasy leather armor, belt pouches, cape",
+    "pilot jumpsuit, patches, utility belt",
+    "casual streetwear: bomber jacket, jeans, high-top shoes",
+]
+
+BG_PRESETS = [
+    "plain neutral studio",
+    "soft gradient backdrop, clean studio lighting",
+    "futuristic city bokeh, night neon, shallow depth of field",
+    "forest clearing, natural light, subtle fog",
+    "spaceship hangar, rim lighting, cinematic mood",
+    "white seamless backdrop, product-photo style",
+]
+
+def _ensure_defaults():
+    st.session_state.setdefault(f"{TAB_KEY}_name", "Alya")
+    st.session_state.setdefault(f"{TAB_KEY}_style", "cinematic realistic")
+    st.session_state.setdefault(f"{TAB_KEY}_desc", "young adventurer, short hair, confident, futuristic vibe")
+    st.session_state.setdefault(f"{TAB_KEY}_outfit", "utility jacket, sneakers, small backpack")
+    st.session_state.setdefault(f"{TAB_KEY}_bg", "plain neutral studio")
+
+def _apply_style_choice():
+    c = st.session_state.get(f"{TAB_KEY}_style_choice", "Custom")
+    if c != "Custom":
+        st.session_state[f"{TAB_KEY}_style"] = c
+
+def _apply_desc_choice():
+    c = st.session_state.get(f"{TAB_KEY}_desc_choice", "Custom")
+    if c != "Custom":
+        st.session_state[f"{TAB_KEY}_desc"] = DESC_PRESETS.get(c, st.session_state.get(f"{TAB_KEY}_desc", ""))
+
+def _apply_outfit_choice():
+    c = st.session_state.get(f"{TAB_KEY}_outfit_choice", "Custom")
+    if c != "Custom":
+        st.session_state[f"{TAB_KEY}_outfit"] = c
+
+def _apply_bg_choice():
+    c = st.session_state.get(f"{TAB_KEY}_bg_choice", "Custom")
+    if c != "Custom":
+        st.session_state[f"{TAB_KEY}_bg"] = c
+
+def render(ctx: dict | None = None):
+    st.title("👤 Character AI Studio (Nano Banana) — Non-blocking")
+
+    gemini_key = _get_gemini_key(ctx)
+    if not gemini_key:
+        st.error("Gemini API key belum ada (profile api_keys.gemini / st.secrets GEMINI_API_KEY).")
+        st.stop()
+
+    ws_root = _ws_root(ctx)
+
+    # session state keys
+    k_pid = f"{TAB_KEY}_pid"
+    k_job = f"{TAB_KEY}_job_dir"
+    k_test = f"{TAB_KEY}_test_result"
+
+    pid = int(st.session_state.get(k_pid) or 0)
+    job_dir: Optional[Path] = Path(st.session_state[k_job]) if st.session_state.get(k_job) else None
+
+    # Baca progress dulu (biar status bisa ngalahin pid)
+    prog = {}
+    status_file = ""
+    if job_dir:
+        prog = read_json(job_dir / "progress.json") or {}
+        status_file = str(prog.get("status") or "").strip().lower()
+
+    running_pid = is_pid_running(pid) if pid else False
+
+    # Anggap "aktif" hanya kalau pid hidup DAN status belum selesai
+    terminal_status = {"done", "error", "stopped", "cancelled", "canceled"}
+    active = bool(running_pid and (status_file not in terminal_status))
+
+    # Kalau sudah terminal tapi pid masih "hidup", stop indikator running di UI
+    if (status_file in terminal_status) and pid:
+        st.session_state[k_pid] = 0
+        pid = 0
+        running_pid = False
+        active = False
+
+    if active:
+        st_autorefresh(interval=1500, key=f"{TAB_KEY}_refresh")
+
+    # --- Top controls (Model / Aspect / Test connection)
+    colA, colB, colC = st.columns([1, 1, 1])
+
+    with colA:
+        model = st.selectbox(
+            "Model",
+            ["gemini-2.5-flash-image", "gemini-3-pro-image-preview"],
+            index=1,
+            key=f"{TAB_KEY}_model",
+        )
+
+    with colB:
+        aspect_ratio = st.selectbox(
+            "Aspect ratio",
+            ["1:1", "4:5", "9:16", "16:9"],
+            index=0,
+            key=f"{TAB_KEY}_aspect",
+        )
+
+    with colC:
+        if st.button(
+            "🔌 Test Connection",
+            key=f"{TAB_KEY}_btn_test_conn",
+            help="Test ringan ke Gemini dengan prompt kecil (Reply with exactly: OK).",
+        ):
+            with st.spinner(f"Testing Gemini connection… ({model})"):
+                ok, msg = _test_gemini_connection(gemini_key, model)
+            st.session_state[k_test] = {
+                "ok": bool(ok),
+                "msg": str(msg),
+                "model": str(model),
+                "ts": float(time.time()),
+            }
+
+    # tampilkan hasil test terakhir
+    t = st.session_state.get(k_test)
+    if isinstance(t, dict) and t.get("msg"):
+        ts = t.get("ts")
+        try:
+            ts_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(float(ts)))
+        except Exception:
+            ts_str = ""
+        st.caption(f"Last connection test: {ts_str} | model={t.get('model','')}".strip(" |"))
+        if t.get("ok"):
+            st.success(t.get("msg"))
+        else:
+            st.error(t.get("msg"))
+
+    # --- model-dependent options
+    image_size = None
+    if model == "gemini-3-pro-image-preview":
+        image_size = st.selectbox(
+            "Resolution (Pro)",
+            ["1K", "2K", "4K"],
+            index=1,
+            key=f"{TAB_KEY}_image_size",
+        )
+
+    st.subheader("Character Spec")
+
+    # pastikan default nilai ada sebelum widget dibuat
+    _ensure_defaults()
+
+    name = st.text_input("Name", key=f"{TAB_KEY}_name")
+
+    st.markdown("**Style**")
+    st.selectbox(
+        "Preset (Style)",
+        ["Custom"] + STYLE_PRESETS,
+        key=f"{TAB_KEY}_style_choice",
+        on_change=_apply_style_choice,
+    )
+    style = st.text_input("Style (editable)", key=f"{TAB_KEY}_style")
+
+    st.markdown("**Description**")
+    st.selectbox(
+        "Preset (Description)",
+        ["Custom"] + list(DESC_PRESETS.keys()),
+        key=f"{TAB_KEY}_desc_choice",
+        on_change=_apply_desc_choice,
+    )
+    description = st.text_area("Description (editable)", key=f"{TAB_KEY}_desc", height=90)
+
+    st.markdown("**Outfit**")
+    st.selectbox(
+        "Preset (Outfit)",
+        ["Custom"] + OUTFIT_PRESETS,
+        key=f"{TAB_KEY}_outfit_choice",
+        on_change=_apply_outfit_choice,
+    )
+    outfit = st.text_input("Outfit (editable)", key=f"{TAB_KEY}_outfit")
+
+    st.markdown("**Background**")
+    st.selectbox(
+        "Preset (Background)",
+        ["Custom"] + BG_PRESETS,
+        key=f"{TAB_KEY}_bg_choice",
+        on_change=_apply_bg_choice,
+    )
+    background = st.text_input("Background (editable)", key=f"{TAB_KEY}_bg")
+
+    ref = st.file_uploader(
+        "Optional reference image (face/character)",
+        type=["png", "jpg", "jpeg", "webp"],
+        key=f"{TAB_KEY}_ref",
+    )
+    variations = st.slider("Variations per shot", 1, 8, 4, key=f"{TAB_KEY}_variations")
+
+    st.subheader("Reliability")
+    max_attempts = st.slider("Max retry per request", 1, 12, 6, key=f"{TAB_KEY}_max_attempts")
+    base_delay = st.number_input(
+        "Base delay (seconds)",
+        min_value=0.2,
+        max_value=10.0,
+        value=1.0,
+        step=0.2,
+        key=f"{TAB_KEY}_base_delay",
+    )
+    max_delay = st.number_input(
+        "Max delay (seconds)",
+        min_value=1.0,
+        max_value=60.0,
+        value=20.0,
+        step=1.0,
+        key=f"{TAB_KEY}_max_delay",
+    )
+
+    fallback_to_flash = False
+    if model == "gemini-3-pro-image-preview":
+        fallback_to_flash = st.checkbox(
+            "Auto fallback to Flash if Pro is busy (503/429)",
+            value=True,
+            key=f"{TAB_KEY}_fallback",
+        )
+
+    c1, c2, c3 = st.columns([1, 1, 2])
+
+    with c1:
+        if st.button("🚀 Start Job", type="primary", disabled=active, key=f"{TAB_KEY}_start"):
+            ts = time.strftime("%Y%m%d_%H%M%S")
+            job_dir = create_job_dir(ws_root, "character_ai", ts)
+
+            ref_path = None
+            if ref is not None:
+                img = Image.open(ref).convert("RGB")
+                ref_path = job_dir / "inputs" / "ref.png"
+                ref_path.parent.mkdir(parents=True, exist_ok=True)
+                img.save(ref_path)
+
+            cfg = {
+                "model": model,
+                "aspect_ratio": aspect_ratio,
+                "image_size": image_size,
+                "variations": int(variations),
+                "ref_image": str(ref_path) if ref_path else None,
+                "character": {
+                    "name": name,
+                    "style": style,
+                    "description": description,
+                    "outfit": outfit,
+                    "background": background,
+                },
+                "retry": {
+                    "max_attempts": int(max_attempts),
+                    "base_delay": float(base_delay),
+                    "max_delay": float(max_delay),
+                },
+                "fallback_model": "gemini-2.5-flash-image" if fallback_to_flash else None,
+            }
+
+            worker_py = (Path(__file__).resolve().parents[1] / "tools" / "character_ai_worker.py")
+            pid = spawn_job(
+                python_bin=sys.executable,
+                worker_py=worker_py,
+                job_dir=job_dir,
+                config=cfg,
+                env={"GEMINI_API_KEY": gemini_key},
+                cwd=Path(__file__).resolve().parents[1],
+            )
+
+            st.session_state[k_pid] = int(pid)
+            st.session_state[k_job] = str(job_dir)
+            st.rerun()
+
+    with c2:
+        if st.button("🛑 Stop Job", disabled=(not active), key=f"{TAB_KEY}_stop"):
+            stop_job(pid)
+            st.rerun()
+
+    with c3:
+        if job_dir:
+            st.caption(f"Job dir: `{job_dir}`  | pid: `{pid}`")
+
+    if job_dir:
+        status = prog.get("status") or ("running" if running else "unknown")
+        percent = float(prog.get("percent") or 0.0)
+        current = prog.get("current") or ""
+
+        st.subheader("Status")
+        st.write(f"**Status:** {status}")
+        st.progress(min(1.0, max(0.0, percent / 100.0)))
+        if current:
+            st.write(f"**Current:** {current}")
+
+        st.subheader("Log (tail)")
+        st.code(tail_file(job_dir / "job.log", 200) or "(no logs yet)")
+
+        # === DOWNLOAD ZIP (muncul kalau job sudah selesai) ===
+        terminal_status = {"done", "error", "stopped", "cancelled", "canceled"}
+        if job_dir:
+            status_now = str((prog.get("status") or "")).strip().lower()
+            if status_now in terminal_status:
+                st.subheader("Download")
+
+                zip_path = (job_dir / "outputs" / f"character_ai_{job_dir.name}.zip").resolve()
+
+                czip1, czip2 = st.columns([1, 2])
+                with czip1:
+                    if st.button("📦 Build ZIP", disabled=zip_path.exists(), key=f"{TAB_KEY}_build_zip"):
+                        try:
+                            zp = _build_outputs_zip(job_dir)
+                            st.success(f"ZIP ready: {zp.name}")
+                        except Exception as e:
+                            st.error(f"Failed to build ZIP: {type(e).__name__}: {e}")
+
+                with czip2:
+                    if zip_path.exists():
+                        with open(zip_path, "rb") as f:
+                            st.download_button(
+                                "⬇️ Download ZIP",
+                                data=f,
+                                file_name=zip_path.name,
+                                mime="application/zip",
+                                key=f"{TAB_KEY}_download_zip",
+                            )
+                    else:
+                        st.caption("Klik **Build ZIP** dulu, lalu tombol download akan muncul.")
+
+        outs = sorted((job_dir / "outputs").rglob("*.png"))[-24:]
+        if outs:
+            st.subheader("Preview outputs (last 24)")
+            st.image([Image.open(p) for p in outs], use_container_width=True)

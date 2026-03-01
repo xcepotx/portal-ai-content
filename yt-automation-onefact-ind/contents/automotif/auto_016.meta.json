@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Ganti cabin filter biar AC lega",
+  "hook": "AC dingin tapi anginnya kecil?",
+  "cta": "Kabin mobil kamu pernah bau?",
+  "query": "",
+  "bg": {
+    "query": "car cabin air filter replacement realistic photo",
+    "variants": [
+      "dirty cabin filter",
+      "cabin filter change"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

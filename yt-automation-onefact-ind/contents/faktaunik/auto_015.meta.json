@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Ada pantai pasir hitam",
+  "hook": "Pantai kok pasirnya hitam?",
+  "cta": "Kamu pernah ke pantai pasir hitam?",
+  "query": "",
+  "bg": {
+    "query": "black sand beach realistic photo",
+    "variants": [
+      "volcanic beach",
+      "black sand shoreline"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

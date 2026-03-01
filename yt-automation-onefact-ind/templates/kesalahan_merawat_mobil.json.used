@@ -1,0 +1,166 @@
+{
+  "title": "Kesalahan Merawat Mobil",
+  "seconds": 30,
+  "facts": [
+    {
+      "title": "Jarang memanaskan mobil yang jarang dipakai",
+      "hook": "Mobil jarang dipakai bukan berarti aman.",
+      "fact": "Mobil yang terlalu lama diam tetap membutuhkan pemanasan agar oli dan komponen mesin tetap terlumasi.",
+      "lines": [
+        "Oli bisa turun ke bawah mesin.",
+        "Seal karet bisa mengering.",
+        "Cukup panaskan 5–10 menit secara rutin."
+      ],
+      "cta": "Mobil kamu sering nganggur?",
+      "bg": {
+        "query": "car warming up engine realistic photo",
+        "variants": ["engine warm up", "idle car engine"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Mengisi bensin sampai benar-benar habis",
+      "hook": "Nunggu lampu bensin nyala terus?",
+      "fact": "Tangki hampir kosong membuat pompa bensin bekerja lebih panas dan cepat rusak.",
+      "lines": [
+        "Pompa bensin butuh BBM untuk pendinginan.",
+        "Risiko kotoran tersedot lebih besar.",
+        "Isi sebelum bensin terlalu rendah."
+      ],
+      "cta": "Sering nunggu bensin kritis?",
+      "bg": {
+        "query": "low fuel warning car dashboard realistic photo",
+        "variants": ["fuel warning light", "empty fuel gauge"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Tidak mengganti oli karena jarang dipakai",
+      "hook": "Jarang jalan tapi oli tidak pernah diganti?",
+      "fact": "Oli tetap mengalami penurunan kualitas meskipun mobil jarang digunakan.",
+      "lines": [
+        "Oli bisa teroksidasi.",
+        "Kelembapan merusak pelumasan.",
+        "Ganti oli tetap wajib berdasarkan waktu."
+      ],
+      "cta": "Terakhir ganti oli kapan?",
+      "bg": {
+        "query": "engine oil dipstick check realistic photo",
+        "variants": ["engine oil check", "car oil maintenance"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Mencuci mesin dengan air bertekanan tinggi",
+      "hook": "Mesin bersih tapi malah bermasalah?",
+      "fact": "Air bertekanan tinggi bisa masuk ke soket dan sensor mesin.",
+      "lines": [
+        "Sensor dan ECU sensitif air.",
+        "Risiko korsleting meningkat.",
+        "Mesin cukup dibersihkan dengan metode aman."
+      ],
+      "cta": "Pernah semprot mesin langsung?",
+      "bg": {
+        "query": "car engine bay cleaning realistic photo",
+        "variants": ["engine wash car", "engine bay detail"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Mengabaikan bunyi aneh dari mobil",
+      "hook": "Bunyi dikit dianggap sepele?",
+      "fact": "Bunyi aneh sering menjadi tanda awal kerusakan komponen.",
+      "lines": [
+        "Bushing atau ball joint mulai aus.",
+        "Kerusakan bisa menjalar.",
+        "Perbaikan dini jauh lebih murah."
+      ],
+      "cta": "Mobil kamu pernah bunyi aneh?",
+      "bg": {
+        "query": "car suspension noise inspection realistic photo",
+        "variants": ["car undercarriage inspection", "suspension check"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Menggunakan air biasa untuk radiator",
+      "hook": "Masih pakai air keran?",
+      "fact": "Air biasa dapat menyebabkan karat dan endapan pada sistem pendingin.",
+      "lines": [
+        "Karat menyumbat saluran radiator.",
+        "Pendinginan jadi tidak optimal.",
+        "Gunakan coolant sesuai spesifikasi."
+      ],
+      "cta": "Radiator mobil kamu pakai apa?",
+      "bg": {
+        "query": "car radiator filling coolant realistic photo",
+        "variants": ["radiator coolant", "cooling system car"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Tekanan ban tidak pernah dicek",
+      "hook": "Ban terlihat normal tapi berbahaya.",
+      "fact": "Tekanan ban yang salah mempengaruhi kenyamanan, keselamatan, dan konsumsi BBM.",
+      "lines": [
+        "Ban kurang angin bikin boros.",
+        "Ban keras mengurangi grip.",
+        "Cek tekanan minimal sebulan sekali."
+      ],
+      "cta": "Kapan terakhir cek ban?",
+      "bg": {
+        "query": "checking car tire pressure realistic photo",
+        "variants": ["tire pressure gauge", "car tire maintenance"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Sering menahan setengah kopling",
+      "hook": "Kebiasaan kecil efeknya besar.",
+      "fact": "Menahan kopling setengah mempercepat keausan plat kopling.",
+      "lines": [
+        "Panas berlebih pada kopling.",
+        "Umur kopling jauh lebih pendek.",
+        "Biasakan lepas kopling penuh."
+      ],
+      "cta": "Masih sering setengah kopling?",
+      "bg": {
+        "query": "manual car clutch pedal close up realistic photo",
+        "variants": ["car clutch system", "manual transmission pedal"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Tidak mengganti filter udara",
+      "hook": "Murah tapi sering dilupakan.",
+      "fact": "Filter udara kotor membuat pembakaran tidak optimal.",
+      "lines": [
+        "Suplai udara terhambat.",
+        "Tenaga mesin menurun.",
+        "BBM jadi lebih boros."
+      ],
+      "cta": "Filter udara mobil kamu kapan diganti?",
+      "bg": {
+        "query": "dirty car air filter realistic photo",
+        "variants": ["engine air filter", "clogged air filter"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+    {
+      "title": "Langsung mematikan mesin setelah perjalanan jauh",
+      "hook": "Kelihatannya sepele, tapi fatal.",
+      "fact": "Mesin yang langsung dimatikan saat panas bisa mempercepat keausan komponen.",
+      "lines": [
+        "Sirkulasi oli belum stabil.",
+        "Suhu komponen masih tinggi.",
+        "Diamkan idle 30–60 detik."
+      ],
+      "cta": "Kamu langsung matikan mesin?",
+      "bg": {
+        "query": "hot car engine after driving realistic photo",
+        "variants": ["engine cooling down", "car engine heat"],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    }
+  ]
+}

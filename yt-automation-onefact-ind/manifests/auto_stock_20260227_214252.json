@@ -1,0 +1,94 @@
+{
+  "version": "1.0",
+  "mode": "auto_stock",
+  "created_at": "20260227_214252",
+  "input": {
+    "content_file": "/home/ubuntu01/yt-automation-onefact-ind/contents/automotif/auto_003.txt",
+    "keyword": "mobil diam lama bikin masalah tidak",
+    "stock_source": "pexels"
+  },
+  "output": {
+    "orientation": "9:16",
+    "target_duration": 30.0,
+    "final_duration": 22.93551,
+    "format": "mp4",
+    "aspect": "9:16",
+    "output_dir": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated"
+  },
+  "audio": {
+    "tts_enabled": true,
+    "tts_engine": "gtts",
+    "tts_voice": "id-ID-ArdiNeural",
+    "tts_speed": 1.0,
+    "audio_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260227_214252/tts_parts/tts_merged.mp3",
+    "audio_duration": 22.93551,
+    "tts_error": null
+  },
+  "captions": {
+    "enabled": true,
+    "srt_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260227_214252/captions.srt",
+    "font_size": 16,
+    "style_name": "Modern Subtitle",
+    "position_name": "Bottom",
+    "style": {
+      "type": "drawtext",
+      "font_weight": "semibold",
+      "fill": "white",
+      "stroke": "black",
+      "stroke_width": 2,
+      "font_size": 16,
+      "box": true,
+      "box_color": "black",
+      "box_opacity": 0.35,
+      "box_padding": 14
+    },
+    "position": {
+      "anchor": "bottom_center",
+      "y": 0.88
+    }
+  },
+  "bgm": {
+    "enabled": true,
+    "volume": 0.2
+  },
+  "render": {
+    "handle": "@yourchannel",
+    "watermark_enabled": true,
+    "watermark_opacity": 120,
+    "watermark_position": "top-right",
+    "hook_subtitle": "FAKTA CEPAT"
+  },
+  "scenes": [
+    {
+      "kind": "hook",
+      "duration": 3.4993105343831745,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260227_214252/clips/stock_01_pexels_15567165.mp4",
+      "text_overlay": "Tahukah kamu?"
+    },
+    {
+      "kind": "scene",
+      "duration": 5.050213065383138,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260227_214252/clips/stock_02_pexels_27999945.mp4",
+      "text_overlay": null
+    },
+    {
+      "kind": "scene",
+      "duration": 5.6628331609589,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260227_214252/clips/stock_03_pexels_7579667.mp4",
+      "text_overlay": null
+    },
+    {
+      "kind": "scene",
+      "duration": 5.125131919034534,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260227_214252/clips/stock_04_pexels_3960168.mp4",
+      "text_overlay": null
+    },
+    {
+      "kind": "cta",
+      "duration": 3.5980213202402545,
+      "clip_path": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260227_214252/clips/stock_05_pexels_28905837.mp4",
+      "text_overlay": "Follow untuk fakta menarik lainnya!"
+    }
+  ],
+  "assets_dir": "/home/ubuntu01/yt-automation-onefact-ind/contents/generated/auto_stock_assets/20260227_214252"
+}

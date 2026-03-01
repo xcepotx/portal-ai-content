@@ -1,0 +1,719 @@
+{
+  "title": "Fakta Unik Dunia",
+  "seconds": 30,
+  "facts": [
+    {
+      "title": "Madu tidak pernah basi",
+      "hook": "Makanan bisa awet ribuan tahun?",
+      "fact": "Madu secara alami sangat sulit basi karena kadar air rendah dan sifat antibakterinya.",
+      "lines": [
+        "Kadar air rendah bikin bakteri susah tumbuh.",
+        "Sifat asamnya membantu menghambat mikroba.",
+        "Disimpan rapat, madunya tahan sangat lama."
+      ],
+      "cta": "Kamu pernah simpan madu lama banget?",
+      "bg": {
+        "query": "honey jar close up realistic photo",
+        "variants": [
+          "raw honey",
+          "honeycomb close up"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Gurita punya tiga jantung",
+      "hook": "Kenapa hewan ini butuh 3 jantung?",
+      "fact": "Gurita punya dua jantung untuk insang dan satu untuk seluruh tubuh.",
+      "lines": [
+        "Dua jantung fokus memompa ke insang.",
+        "Satu jantung memompa ke seluruh tubuh.",
+        "Darahnya kebiruan karena kandungan tembaga."
+      ],
+      "cta": "Alam emang kreatif banget ya?",
+      "bg": {
+        "query": "octopus underwater realistic photo",
+        "variants": [
+          "octopus close up",
+          "giant octopus"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Pisang itu buah beri",
+      "hook": "Stroberi itu bukan beri, loh!",
+      "fact": "Secara botani, pisang termasuk buah beri, sedangkan stroberi bukan.",
+      "lines": [
+        "Beri sejati berasal dari satu bunga dan satu ovarium.",
+        "Biji stroberi berada di luar permukaan.",
+        "Pisang memenuhi ciri beri secara ilmiah."
+      ],
+      "cta": "Baru tahu atau udah tahu?",
+      "bg": {
+        "query": "banana bunch realistic photo",
+        "variants": [
+          "ripe bananas close up",
+          "banana tree fruit"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Ada ubur-ubur yang “abadi”",
+      "hook": "Hewan ini bisa balik muda lagi!",
+      "fact": "Ada spesies ubur-ubur yang bisa kembali ke fase muda lewat proses biologis tertentu.",
+      "lines": [
+        "Saat stres, ia bisa “reset” siklus hidupnya.",
+        "Dari dewasa bisa kembali jadi polip.",
+        "Bukan berarti kebal dari predator, ya."
+      ],
+      "cta": "Kalau manusia bisa gini, kamu mau?",
+      "bg": {
+        "query": "jellyfish underwater glowing realistic photo",
+        "variants": [
+          "jellyfish close up",
+          "transparent jellyfish"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Sehari di Venus lebih lama dari setahun",
+      "hook": "Kalender paling absurd di tata surya!",
+      "fact": "Venus berputar sangat lambat, sampai satu harinya lebih lama dari satu tahunnya.",
+      "lines": [
+        "Rotasi Venus sangat lambat.",
+        "Satu hari Venus lebih lama dari 1 tahun Venus.",
+        "Beda banget dengan Bumi."
+      ],
+      "cta": "Kebayang kerja lembur di Venus?",
+      "bg": {
+        "query": "planet venus space realistic illustration",
+        "variants": [
+          "venus atmosphere",
+          "venus planet render"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Petir lebih panas dari permukaan Matahari",
+      "hook": "Petir itu panasnya keterlaluan!",
+      "fact": "Suhu petir bisa jauh lebih tinggi daripada suhu permukaan Matahari.",
+      "lines": [
+        "Kilatan petir memanaskan udara super cepat.",
+        "Itu yang bikin suara guntur.",
+        "Makanya petir berbahaya banget."
+      ],
+      "cta": "Kamu pernah lihat petir dekat banget?",
+      "bg": {
+        "query": "lightning storm night realistic photo",
+        "variants": [
+          "thunderstorm lightning",
+          "lightning strike"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Hiu lebih tua dari dinosaurus",
+      "hook": "Hiu itu fosil hidup?",
+      "fact": "Hiu sudah ada jauh sebelum dinosaurus muncul di Bumi.",
+      "lines": [
+        "Hiu berevolusi sangat lama.",
+        "Mereka bertahan melewati banyak perubahan Bumi.",
+        "Makanya bentuk dasarnya mirip dari dulu."
+      ],
+      "cta": "Tim takut hiu atau tim kagum hiu?",
+      "bg": {
+        "query": "shark underwater realistic photo",
+        "variants": [
+          "great white shark",
+          "shark close up"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Ada danau yang bisa “meledak”",
+      "hook": "Danau kok bisa bahaya?",
+      "fact": "Beberapa danau bisa menyimpan gas dan melepaskannya mendadak dalam peristiwa langka.",
+      "lines": [
+        "Gas bisa terperangkap di lapisan bawah.",
+        "Jika terganggu, gas bisa naik cepat.",
+        "Fenomenanya jarang tapi bisa berbahaya."
+      ],
+      "cta": "Mau bahas fakta alam ekstrem lagi?",
+      "bg": {
+        "query": "volcanic lake mist realistic photo",
+        "variants": [
+          "crater lake",
+          "foggy lake"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Ada air terjun bawah laut",
+      "hook": "Air terjun… di bawah laut?!",
+      "fact": "Di beberapa tempat, arus dan perbedaan kepadatan air menciptakan ilusi air terjun di dalam laut.",
+      "lines": [
+        "Terjadi karena perbedaan salinitas dan suhu.",
+        "Arus mengalir seperti jatuh ke jurang.",
+        "Kelihatan seperti air terjun sungguhan."
+      ],
+      "cta": "Kamu baru tahu ini?",
+      "bg": {
+        "query": "underwater waterfall illusion realistic photo",
+        "variants": [
+          "ocean current underwater",
+          "underwater cliff sandfall"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Gunung Everest masih bertambah tinggi",
+      "hook": "Everest masih “naik level”?",
+      "fact": "Pergerakan lempeng tektonik membuat Everest terus berubah, termasuk bisa bertambah tinggi sedikit demi sedikit.",
+      "lines": [
+        "Lempeng bumi terus bergerak.",
+        "Pegunungan terdorong perlahan.",
+        "Perubahannya kecil tapi nyata."
+      ],
+      "cta": "Kalau bisa teleport, mau ke Everest?",
+      "bg": {
+        "query": "mount everest peak realistic photo",
+        "variants": [
+          "himalaya mountain range",
+          "snow mountain peak"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Kupu-kupu “mengecap” dengan kaki",
+      "hook": "Mulutnya di kaki?",
+      "fact": "Kupu-kupu punya reseptor rasa di kaki untuk mengenali tanaman yang cocok.",
+      "lines": [
+        "Mereka mendarat untuk “cek rasa”.",
+        "Ini membantu memilih tempat bertelur.",
+        "Super praktis buat bertahan hidup."
+      ],
+      "cta": "Kamu pernah lihat kupu-kupu dekat?",
+      "bg": {
+        "query": "butterfly on flower close up realistic photo",
+        "variants": [
+          "butterfly macro",
+          "butterfly feet close up"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Lumba-lumba punya “nama”",
+      "hook": "Hewan ini saling panggil nama!",
+      "fact": "Lumba-lumba memakai peluit khas sebagai identitas yang mirip “nama” untuk dikenali satu sama lain.",
+      "lines": [
+        "Setiap individu bisa punya peluit khas.",
+        "Mereka merespons panggilan tersebut.",
+        "Komunikasinya kompleks."
+      ],
+      "cta": "Mau fakta hewan pintar lainnya?",
+      "bg": {
+        "query": "dolphins swimming realistic photo",
+        "variants": [
+          "dolphin pod",
+          "dolphin close up"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Ada jamur yang menyala di gelap",
+      "hook": "Jamur kok bisa glow?",
+      "fact": "Beberapa jamur punya bioluminesensi yang membuatnya terlihat menyala dalam gelap.",
+      "lines": [
+        "Cahayanya berasal dari reaksi kimia.",
+        "Bisa membantu menarik serangga tertentu.",
+        "Kelihatan seperti lampu alami."
+      ],
+      "cta": "Kalau lihat ini malam-malam, takut gak?",
+      "bg": {
+        "query": "bioluminescent mushroom forest night realistic photo",
+        "variants": [
+          "glowing mushrooms",
+          "luminescent fungi"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Ada pantai pasir hitam",
+      "hook": "Pantai kok pasirnya hitam?",
+      "fact": "Pasir hitam biasanya berasal dari aktivitas vulkanik dan mineral tertentu.",
+      "lines": [
+        "Material vulkanik mendingin jadi butiran pasir.",
+        "Warnanya bisa hitam pekat.",
+        "Terlihat unik banget saat kontras dengan ombak."
+      ],
+      "cta": "Kamu pernah ke pantai pasir hitam?",
+      "bg": {
+        "query": "black sand beach realistic photo",
+        "variants": [
+          "volcanic beach",
+          "black sand shoreline"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Ada sungai yang warnanya pelangi",
+      "hook": "Ini sungai atau cat tumpah?",
+      "fact": "Beberapa sungai bisa tampak berwarna-warni karena tanaman air, mineral, dan kondisi cahaya.",
+      "lines": [
+        "Warna muncul dari organisme dan pigmen alami.",
+        "Musim dan cuaca mempengaruhi warnanya.",
+        "Terlihat seperti lukisan."
+      ],
+      "cta": "Kalau kamu lihat, percaya gak itu asli?",
+      "bg": {
+        "query": "colorful river natural phenomenon realistic photo",
+        "variants": [
+          "rainbow river",
+          "multicolored river"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Es bisa “nyanyi”",
+      "hook": "Es kok bisa bunyi kayak musik?",
+      "fact": "Di danau beku, retakan dan pergeseran es bisa menghasilkan suara unik seperti dengungan atau denting.",
+      "lines": [
+        "Perubahan suhu bikin es memuai dan menyusut.",
+        "Retakan merambat cepat menghasilkan bunyi.",
+        "Suara bisa terdengar sangat aneh."
+      ],
+      "cta": "Mau dengar suara alam yang aneh lagi?",
+      "bg": {
+        "query": "frozen lake ice cracks realistic photo",
+        "variants": [
+          "ice on lake",
+          "winter frozen lake"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Ada batu yang bisa bergerak sendiri",
+      "hook": "Batu jalan sendiri itu nyata!",
+      "fact": "Di tempat tertentu, kombinasi es tipis, angin, dan permukaan licin bisa membuat batu tampak bergerak.",
+      "lines": [
+        "Jejaknya terlihat panjang di tanah.",
+        "Pergerakannya pelan dan jarang terlihat langsung.",
+        "Fenomena alam, bukan mistis."
+      ],
+      "cta": "Kamu tim sains atau tim mistis?",
+      "bg": {
+        "query": "sailing stones desert rocks tracks realistic photo",
+        "variants": [
+          "moving rocks desert",
+          "rock tracks dry lake"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Semut bisa angkat beban berkali-kali lipat",
+      "hook": "Makhluk kecil tapi super kuat!",
+      "fact": "Semut dapat membawa beban jauh lebih berat dibanding ukuran tubuhnya.",
+      "lines": [
+        "Struktur tubuhnya efisien.",
+        "Otot relatifnya sangat kuat.",
+        "Kerja tim bikin mereka makin “OP”."
+      ],
+      "cta": "Semut di rumah kamu tim kerja keras juga?",
+      "bg": {
+        "query": "ant carrying leaf macro realistic photo",
+        "variants": [
+          "ants teamwork macro",
+          "ant close up"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Ada gua dengan kristal raksasa",
+      "hook": "Kristalnya segede tiang!",
+      "fact": "Beberapa gua memiliki kristal berukuran sangat besar karena kondisi mineral dan suhu yang stabil.",
+      "lines": [
+        "Butuh waktu sangat lama untuk terbentuk.",
+        "Suhu dan kelembapan berperan besar.",
+        "Tampilannya seperti dunia alien."
+      ],
+      "cta": "Kalau ada tur ke sana, kamu ikut?",
+      "bg": {
+        "query": "giant crystal cave realistic photo",
+        "variants": [
+          "crystal cavern",
+          "large crystals cave"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Air laut lebih asin karena… sungai",
+      "hook": "Sungai bikin laut asin?",
+      "fact": "Sungai membawa mineral terlarut dari batuan ke laut, lalu air menguap dan garamnya tertinggal.",
+      "lines": [
+        "Hujan melarutkan mineral dari daratan.",
+        "Sungai mengalirkannya ke laut.",
+        "Penguapan membuat konsentrasi garam meningkat."
+      ],
+      "cta": "Mau fakta sains simpel lainnya?",
+      "bg": {
+        "query": "ocean waves shoreline realistic photo",
+        "variants": [
+          "sea salt water",
+          "ocean surface close up"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Ada awan yang bentuknya seperti gelombang",
+      "hook": "Langit bisa kelihatan kayak lautan!",
+      "fact": "Beberapa pola awan terbentuk karena perbedaan lapisan udara dan angin, terlihat seperti ombak.",
+      "lines": [
+        "Terjadi karena arus udara bergelombang.",
+        "Biasanya muncul di kondisi atmosfer tertentu.",
+        "Hasilnya visualnya dramatis."
+      ],
+      "cta": "Pernah lihat awan yang bikin merinding?",
+      "bg": {
+        "query": "wave clouds realistic photo",
+        "variants": [
+          "undulatus clouds",
+          "wave pattern clouds"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Ada danau yang warnanya pink",
+      "hook": "Danau pink itu beneran ada!",
+      "fact": "Warna pink pada beberapa danau bisa muncul dari mikroorganisme dan kadar garam tertentu.",
+      "lines": [
+        "Mikroorganisme menghasilkan pigmen.",
+        "Kadar garam tinggi mendukung kondisi unik.",
+        "Warnanya bisa berubah tergantung musim."
+      ],
+      "cta": "Kalau foto di sini, auto viral gak?",
+      "bg": {
+        "query": "pink lake aerial realistic photo",
+        "variants": [
+          "pink salt lake",
+          "rose lake drone view"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Ada tempat yang hujannya hampir tiap hari",
+      "hook": "Bayangin jemur baju… susah!",
+      "fact": "Beberapa wilayah punya curah hujan sangat tinggi karena kondisi geografis dan angin lembap.",
+      "lines": [
+        "Pegunungan memaksa awan naik dan mendingin.",
+        "Uap air cepat jadi hujan.",
+        "Musim keringnya bisa sangat singkat."
+      ],
+      "cta": "Kamu lebih suka hujan atau panas?",
+      "bg": {
+        "query": "heavy rain city street realistic photo",
+        "variants": [
+          "rainy day street",
+          "tropical rain"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Koala punya sidik jari mirip manusia",
+      "hook": "Sidik jari koala bisa bikin bingung!",
+      "fact": "Sidik jari koala sangat mirip manusia sampai bisa sulit dibedakan sekilas.",
+      "lines": [
+        "Pola garisnya kompleks.",
+        "Mirip karena adaptasi menggenggam.",
+        "Unik banget untuk hewan marsupial."
+      ],
+      "cta": "Kalau ketemu koala, mau foto gak?",
+      "bg": {
+        "query": "koala close up realistic photo",
+        "variants": [
+          "koala hands close up",
+          "koala portrait natural"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Paus biru jantungnya sangat besar",
+      "hook": "Jantung hewan ini kayak mesin!",
+      "fact": "Ukuran jantung paus biru bisa sangat besar dibanding hewan lain, sesuai tubuhnya yang raksasa.",
+      "lines": [
+        "Paus biru adalah hewan terbesar di Bumi.",
+        "Sirkulasi darahnya butuh tenaga besar.",
+        "Detak jantungnya bisa melambat saat menyelam."
+      ],
+      "cta": "Kamu tim laut atau tim darat?",
+      "bg": {
+        "query": "blue whale underwater realistic photo",
+        "variants": [
+          "whale swimming",
+          "giant whale ocean"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Gletser menyimpan “arsip” masa lalu",
+      "hook": "Es bisa jadi mesin waktu?",
+      "fact": "Lapisan es menyimpan gelembung udara dan partikel yang merekam kondisi atmosfer masa lalu.",
+      "lines": [
+        "Gelembung udara terperangkap saat salju memadat.",
+        "Ilmuwan bisa meneliti komposisi udaranya.",
+        "Seperti rekaman sejarah iklim."
+      ],
+      "cta": "Mau fakta Bumi yang bikin takjub lagi?",
+      "bg": {
+        "query": "glacier ice layers close up realistic photo",
+        "variants": [
+          "ice core sample",
+          "glacier wall"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Ada pasir yang bisa “bernyanyi”",
+      "hook": "Pasir kok bisa bunyi?",
+      "fact": "Di beberapa gurun, pasir tertentu bisa mengeluarkan suara saat meluncur karena ukuran butir dan kekeringan.",
+      "lines": [
+        "Butir pasirnya seragam dan sangat kering.",
+        "Saat bergerak, timbul getaran.",
+        "Suaranya bisa terdengar seperti dengung."
+      ],
+      "cta": "Kalau dengar ini malam-malam, merinding gak?",
+      "bg": {
+        "query": "sand dune desert realistic photo",
+        "variants": [
+          "desert dunes",
+          "wind blowing sand"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Ada pohon yang “berjalan”",
+      "hook": "Pohon pindah tempat?",
+      "fact": "Beberapa tanaman bisa tampak berpindah perlahan karena pertumbuhan akar dan kondisi tanah yang berubah.",
+      "lines": [
+        "Akar tumbuh mencari sumber air dan nutrisi.",
+        "Tanah labil bisa menggeser posisi.",
+        "Perubahannya sangat lambat, tapi terjadi."
+      ],
+      "cta": "Kamu mau versi fakta alam “aneh” lagi?",
+      "bg": {
+        "query": "mangrove roots forest realistic photo",
+        "variants": [
+          "tree roots moving soil",
+          "mangrove forest"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Ada tempat yang tidak pernah hujan",
+      "hook": "Gimana rasanya hidup tanpa hujan?",
+      "fact": "Beberapa wilayah sangat kering karena letaknya, arus udara, dan kondisi geografis ekstrem.",
+      "lines": [
+        "Udara kering sulit membentuk awan hujan.",
+        "Pegunungan bisa “menghalangi” uap air.",
+        "Gurun ekstrem bisa nyaris tanpa hujan."
+      ],
+      "cta": "Kamu kuat tinggal di tempat gini?",
+      "bg": {
+        "query": "extreme desert landscape realistic photo",
+        "variants": [
+          "dry desert plain",
+          "arid desert mountains"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Ada fenomena “api dingin” di laut",
+      "hook": "Api tapi di air?",
+      "fact": "Beberapa gas dan reaksi tertentu bisa terlihat seperti nyala di bawah air, sering disebut fenomena langka.",
+      "lines": [
+        "Terjadi karena gas dan kondisi khusus.",
+        "Tampak seperti nyala atau kilau terang.",
+        "Bukan api biasa seperti di darat."
+      ],
+      "cta": "Mau fakta laut yang lebih aneh?",
+      "bg": {
+        "query": "underwater glowing phenomenon realistic photo",
+        "variants": [
+          "underwater flare",
+          "ocean glow night"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    },
+    {
+      "title": "Ada “laut” di bawah tanah",
+      "hook": "Bawah tanah ada laut?!",
+      "fact": "Beberapa gua raksasa memiliki danau atau sungai bawah tanah yang sangat luas.",
+      "lines": [
+        "Air mengalir melalui batu kapur selama ribuan tahun.",
+        "Membentuk gua dan ruang besar.",
+        "Kadang ada ekosistem sendiri."
+      ],
+      "cta": "Kalau ada wisata gua, kamu ikut?",
+      "bg": {
+        "query": "underground cave river realistic photo",
+        "variants": [
+          "cave lake",
+          "cavern underground water"
+        ],
+        "avoid": [
+          "portrait",
+          "orang",
+          "selfie"
+        ]
+      }
+    }
+  ]
+}

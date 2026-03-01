@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Gunung Everest masih bertambah tinggi",
+  "hook": "Everest masih “naik level”?",
+  "cta": "Kalau bisa teleport, mau ke Everest?",
+  "query": "",
+  "bg": {
+    "query": "mount everest peak realistic photo",
+    "variants": [
+      "himalaya mountain range",
+      "snow mountain peak"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

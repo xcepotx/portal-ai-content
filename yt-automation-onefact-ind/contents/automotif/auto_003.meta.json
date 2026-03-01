@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Jangan biarkan mobil lama parkir tanpa jalan",
+  "hook": "Mobil diam lama bisa bikin masalah!",
+  "cta": "Mobil kamu sering nganggur?",
+  "query": "",
+  "bg": {
+    "query": "car parked long time driveway realistic photo",
+    "variants": [
+      "car stored outside",
+      "parked car dust"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

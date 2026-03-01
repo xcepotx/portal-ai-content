@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Ada danau yang warnanya pink",
+  "hook": "Danau pink itu beneran ada!",
+  "cta": "Kalau foto di sini, auto viral gak?",
+  "query": "",
+  "bg": {
+    "query": "pink lake aerial realistic photo",
+    "variants": [
+      "pink salt lake",
+      "rose lake drone view"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

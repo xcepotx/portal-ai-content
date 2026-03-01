@@ -1,0 +1,114 @@
+import os, glob, re, time
+import streamlit as st
+from core import helpers
+from ui import sidebar
+import subprocess
+import sys
+import random
+import json
+from pathlib import Path
+import html
+import signal
+import requests
+from dotenv import load_dotenv, set_key  # Import baru
+from ytlong.engine import build_long_video
+from ytshorts.review_manager import REVIEW_DIR, load_project_state, update_segment_image
+
+def render(ctx):
+    config = ctx["config"]
+    # Layout Header + Tombol Refresh
+    c_head, c_btn = st.columns([6, 1])
+
+    with c_head:
+        st.subheader("🎣 Edit Hook & CTA Bank")
+    with c_btn:
+        if st.button("🔄 Refresh", key="refresh_tab4", help="Muat ulang file dari disk"):
+            # --- LOGIKA FIX ---
+            if "editor_bank_json" in st.session_state:
+                del st.session_state["editor_bank_json"]
+            # ------------------
+            st.rerun()
+
+    st.info("File ini (`ytshorts/template_bank.json`) berisi koleksi Hook dan CTA global.")
+
+    # Tentukan path file
+    bank_path = Path("ytshorts/template_bank.json")
+
+    # Cek apakah file ada
+    if bank_path.exists():
+        try:
+            with open(bank_path, "r", encoding="utf-8") as f:
+                bank_content = f.read()
+
+            # 1. Editor Area
+            edited_bank = st.text_area(
+                "Editor Template Bank (JSON):",
+                value=bank_content,
+                height=500,
+                key="editor_bank_json"
+            )
+
+            role = st.session_state.get("auth_role", "")
+            can_generate = (role == "admin")
+            if not can_generate:
+                st.info("Akun ini mode VIEWER: hanya bisa melihat & preview. Tombol Simpan dinonaktifkan.")
+
+            # 2. Tombol Simpan
+            if st.button("💾 Simpan Bank Hook & CTA", key="save_bank_btn", disabled=not can_generate):
+                try:
+                    # Validasi JSON
+                    json_obj = json.loads(edited_bank)
+
+                    has_hooks = "hook_templates" in json_obj
+                    has_cta = "cta_templates" in json_obj
+
+                    if has_hooks and has_cta:
+                        # Simpan File
+                        with open(bank_path, "w", encoding="utf-8") as f:
+                            f.write(edited_bank)
+
+                        st.toast("Bank Hook & CTA berhasil diupdate!", icon="💾")
+                        st.success("✅ Perubahan disimpan!")
+                        time.sleep(1)
+                        st.rerun()
+                    else:
+                        st.warning("⚠️ Struktur JSON berbeda (Key 'hook_templates' atau 'cta_templates' hilang).")
+                        # Tetap simpan jika user memaksa
+                        with open(bank_path, "w", encoding="utf-8") as f:
+                            f.write(edited_bank)
+                        st.toast("Disimpan (Warning Structure)", icon="⚠️")
+                        time.sleep(1)
+                        st.rerun()
+
+                except json.JSONDecodeError as e:
+                    st.error("❌ **Gagal Menyimpan!** Format JSON Salah.")
+                    st.error(f"Error: {e}")
+                except Exception as e:
+                    st.error(f"Error menulis file: {e}")
+
+            # 3. Preview Data Rapi
+            st.divider()
+            with st.expander("👁️ Preview Data (Visual)", expanded=True):
+                try:
+                    data_preview = json.loads(edited_bank)
+
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.markdown("### 🎣 Hook Templates")
+                        hooks = data_preview.get("hook_templates", [])
+                        if hooks: st.json(hooks)
+                        else: st.warning("Kosong / Key salah")
+
+                    with c2:
+                        st.markdown("### 📣 CTA Templates")
+                        cta = data_preview.get("cta_templates", [])
+                        if cta: st.json(cta)
+                        else: st.warning("Kosong / Key salah")
+
+                except Exception as e:
+                    st.error("Preview tidak tersedia karena format JSON error.")
+
+        except Exception as e:
+            st.error(f"Gagal membaca file: {e}")
+    else:
+        st.error(f"❌ File tidak ditemukan: `{bank_path}`")

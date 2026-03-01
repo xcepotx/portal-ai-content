@@ -1,0 +1,260 @@
+# yt-automation-onefact-ind/tools/character_ai_worker.py
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import time
+from pathlib import Path
+from typing import List, Optional
+
+from PIL import Image
+
+import sys
+REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO_ROOT))
+
+from modules.nano_banana_client import NanoBananaClient  # noqa
+from core.job_engine import init_progress, update_progress  # noqa
+
+from pathlib import Path
+import re
+
+def _safe_stem(s: str, max_len: int = 32) -> str:
+    s = (s or "").strip()
+    s = re.sub(r"\s+", "_", s)
+    s = re.sub(r"[^A-Za-z0-9_\-]+", "_", s)  # buang koma, dll
+    s = s.strip("_")
+    if not s:
+        s = "prompt"
+    return s[:max_len]
+
+def _append_log(log_path: Path, msg: str):
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    line = f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n"
+    with log_path.open("a", encoding="utf-8") as f:
+        f.write(line)
+
+
+def _save_images(images: List[Image.Image], out_dir: Path, base_name: str) -> List[Path]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_paths = []
+    for i, img in enumerate(images, start=1):
+        p = out_dir / f"{base_name}_{i:02d}.png"
+        img.save(p)
+        out_paths.append(p)
+    return out_paths
+
+import random
+
+def _is_transient(e: Exception) -> bool:
+    s = str(e).lower()
+    return (
+        "503" in s or "unavailable" in s or "high demand" in s or
+        "429" in s or "resource_exhausted" in s or "rate limit" in s
+    )
+
+def _sleep_backoff(attempt: int, base: float, max_delay: float) -> float:
+    # attempt starts at 1
+    delay = min(max_delay, base * (2 ** (attempt - 1)))
+    # jitter 70% - 130%
+    delay = delay * (0.7 + 0.6 * random.random())
+    time.sleep(delay)
+    return delay
+
+def generate_with_retry(
+    *,
+    job_dir: Path,
+    log_path: Path,
+    total: int,
+    done: int,
+    current: str,
+    client_primary: NanoBananaClient,
+    client_fallback: NanoBananaClient | None,
+    prompt: str,
+    ref_images,
+    aspect_ratio: str,
+    image_size: str | None,
+    max_attempts: int,
+    base_delay: float,
+    max_delay: float,
+):
+    last_err: Exception | None = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return client_primary.generate(
+                prompt=prompt,
+                ref_images=ref_images,
+                aspect_ratio=aspect_ratio,
+                image_size=image_size,
+            )
+        except Exception as e:
+            last_err = e
+            if (attempt == max_attempts) or (not _is_transient(e)):
+                break
+
+            update_progress(
+                job_dir,
+                status="retrying",
+                total=total,
+                done=done,
+                current=f"{current} | retry {attempt+1}/{max_attempts}",
+            )
+            _append_log(log_path, f"RETRY {attempt}/{max_attempts} (primary) due to: {e}")
+            d = _sleep_backoff(attempt, base_delay, max_delay)
+            _append_log(log_path, f"...slept {d:.1f}s")
+
+    # fallback (kalau diset)
+    if client_fallback is not None and last_err is not None and _is_transient(last_err):
+        _append_log(log_path, f"FALLBACK to flash due to: {last_err}")
+        for attempt in range(1, max_attempts + 1):
+            try:
+                return client_fallback.generate(
+                    prompt=prompt,
+                    ref_images=ref_images,
+                    aspect_ratio=aspect_ratio,
+                    image_size=None,  # flash ignore size
+                )
+            except Exception as e:
+                last_err = e
+                if (attempt == max_attempts) or (not _is_transient(e)):
+                    break
+                update_progress(
+                    job_dir,
+                    status="retrying",
+                    total=total,
+                    done=done,
+                    current=f"{current} | fallback retry {attempt+1}/{max_attempts}",
+                )
+                _append_log(log_path, f"RETRY {attempt}/{max_attempts} (fallback) due to: {e}")
+                d = _sleep_backoff(attempt, base_delay, max_delay)
+                _append_log(log_path, f"...slept {d:.1f}s")
+
+    raise last_err if last_err else RuntimeError("Unknown error")
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--config", required=True)
+    args = ap.parse_args()
+
+    cfg_path = Path(args.config).resolve()
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+
+    job_dir = Path(cfg["job_dir"]).resolve()
+    log_path = Path(cfg["log_path"]).resolve()
+
+    api_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
+    if not api_key:
+        _append_log(log_path, "ERROR: GEMINI_API_KEY env not set.")
+        raise SystemExit(2)
+
+    model = cfg.get("model") or "gemini-3-pro-image-preview"
+    aspect_ratio = cfg.get("aspect_ratio") or "1:1"
+    image_size = cfg.get("image_size")  # optional
+    variations = int(cfg.get("variations") or 4)
+
+    # === RETRY + FALLBACK CONFIG (TARUH DI SINI) ===
+    retry_cfg = cfg.get("retry") or {}
+    max_attempts = int(retry_cfg.get("max_attempts") or 6)
+    base_delay = float(retry_cfg.get("base_delay") or 1.0)
+    max_delay = float(retry_cfg.get("max_delay") or 20.0)
+
+    fallback_model = (cfg.get("fallback_model") or "").strip() or None
+
+    client_primary = NanoBananaClient(api_key=api_key, model=model)
+    client_fallback = NanoBananaClient(api_key=api_key, model=fallback_model) if fallback_model else None
+
+    # character spec
+    char = cfg.get("character") or {}
+    name = (char.get("name") or "character").strip()
+    style = (char.get("style") or "cinematic realistic").strip()
+    description = (char.get("description") or "").strip()
+    outfit = (char.get("outfit") or "").strip()
+    background = (char.get("background") or "plain neutral studio").strip()
+
+    # optional ref image
+    ref_path = (cfg.get("ref_image") or "").strip() or None
+    ref_img: Optional[Image.Image] = None
+    if ref_path:
+        p = Path(ref_path).resolve()
+        if p.exists():
+            ref_img = Image.open(p).convert("RGB")
+
+    # shot list (bisa kamu tambah)
+    shots = [
+        "Portrait, head and shoulders, clean lighting",
+        "Full body, standing pose, clear silhouette",
+        "Three-view turnaround: front, 3/4, side",
+        "Expression sheet: neutral, smile, angry, surprised",
+    ]
+
+    total = len(shots) * variations
+    init_progress(job_dir, total)
+
+    #client = NanoBananaClient(api_key=api_key, model=model)
+    done = 0
+
+    out_dir = (job_dir / "outputs" / "character_ai").resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    _append_log(log_path, f"JOB START character={name} model={model}")
+
+    for shot in shots:
+        for v in range(1, variations + 1):
+            current = f"{shot} | v{v}/{variations}"
+            update_progress(job_dir, status="running", total=total, done=done, current=current)
+            _append_log(log_path, f"Generating: {current}")
+
+            prompt = (
+                "You are a senior character designer.\n"
+                f"Create a {style} character design.\n"
+                f"Character name: {name}\n"
+                f"Description: {description}\n"
+                f"Outfit: {outfit}\n"
+                f"Background: {background}\n"
+                f"Shot: {shot}\n"
+                "Keep anatomy consistent. No watermarks. High detail. Clean edges.\n"
+                f"Variation: {v}. Make it distinct but consistent with the same character.\n"
+            )
+
+            try:
+                res = generate_with_retry(
+                    job_dir=job_dir,
+                    log_path=log_path,
+                    total=total,
+                    done=done,
+                    current=current,
+                    client_primary=client_primary,
+                    client_fallback=client_fallback,
+                    prompt=prompt,
+                    ref_images=[ref_img] if ref_img else None,
+                    aspect_ratio=aspect_ratio,
+                    image_size=image_size,
+                    max_attempts=max_attempts,
+                    base_delay=base_delay,
+                    max_delay=max_delay,
+                )
+
+                # === FIX: safe filename + pastikan folder ada ===
+                stem = _safe_stem(shot)
+                out_dir.mkdir(parents=True, exist_ok=True)  # extra safety (walau sudah ada di luar)
+
+                prompt_path = out_dir / f"prompt_{stem}_v{v}.txt"
+                prompt_path.parent.mkdir(parents=True, exist_ok=True)
+                prompt_path.write_text(prompt, encoding="utf-8")
+
+                _save_images(res.images, out_dir, f"{name}_{stem}_v{v}")
+
+            except Exception as e:
+                _append_log(log_path, f"ERROR: {type(e).__name__}: {e}")
+
+            done += 1
+            update_progress(job_dir, status="running", total=total, done=done, current=current)
+
+    update_progress(job_dir, status="done", total=total, done=total, current="")
+    _append_log(log_path, "JOB DONE")
+
+
+if __name__ == "__main__":
+    main()

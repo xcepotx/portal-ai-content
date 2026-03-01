@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Jangan overfill oli mesin",
+  "hook": "Kebanyakan oli juga bahaya!",
+  "cta": "Pernah isi oli sampai lewat MAX?",
+  "query": "",
+  "bg": {
+    "query": "engine oil overfill dipstick close up realistic photo",
+    "variants": [
+      "oil level too high dipstick",
+      "overfilled engine oil"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

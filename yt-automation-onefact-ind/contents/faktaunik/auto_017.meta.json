@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Ada tempat yang tidak pernah hujan",
+  "hook": "Gimana rasanya hidup tanpa hujan?",
+  "cta": "Kamu kuat tinggal di tempat gini?",
+  "query": "",
+  "bg": {
+    "query": "extreme desert landscape realistic photo",
+    "variants": [
+      "dry desert plain",
+      "arid desert mountains"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

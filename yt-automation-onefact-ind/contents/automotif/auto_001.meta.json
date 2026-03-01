@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Jangan semprot rem panas dengan air",
+  "hook": "Habis ngerem panas lalu kena air? Bahaya!",
+  "cta": "Pernah ngerasa rem bergetar?",
+  "query": "",
+  "bg": {
+    "query": "hot brake disc close up realistic photo",
+    "variants": [
+      "brake rotor heat",
+      "brake disc close up"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

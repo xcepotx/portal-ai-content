@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Gletser menyimpan “arsip” masa lalu",
+  "hook": "Es bisa jadi mesin waktu?",
+  "cta": "Mau fakta Bumi yang bikin takjub lagi?",
+  "query": "",
+  "bg": {
+    "query": "glacier ice layers close up realistic photo",
+    "variants": [
+      "ice core sample",
+      "glacier wall"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

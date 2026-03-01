@@ -1,0 +1,729 @@
+import os
+import re
+import json
+import signal
+import time
+import html
+import subprocess
+import shutil
+from pathlib import Path
+
+import requests
+import streamlit as st
+
+CONTENT_ROOT = Path("contents")
+UPLOAD_DIR = Path("uploads/manual_images")
+MANIFEST_DIR = Path("temp/manual_manifests")
+LOG_DIR = Path("temp/logs")
+ASSETS_IMG_DIR = Path("assets/images")
+
+PEXELS_PHOTO_API = "https://api.pexels.com/v1/search"
+
+_MP4_RE = re.compile(r"(/[^ \n\r\t]+\.mp4)")
+_READY_RE = re.compile(r"(video ready|Writing video)\s+(.+\.mp4)", re.IGNORECASE)
+
+
+# -------------------------
+# Helpers: process + log
+# -------------------------
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+        return True
+    except Exception:
+        return False
+
+def _tail_text(path: str, max_chars: int = 120_000) -> str:
+    try:
+        p = Path(path)
+        if not p.exists():
+            return ""
+        data = p.read_text(encoding="utf-8", errors="replace")
+        return data[-max_chars:]
+    except Exception:
+        return ""
+
+MAX_LINES_DEFAULT = 450
+
+def _extract_last_mp4_from_log_text(log_text: str) -> str:
+    if not log_text:
+        return ""
+    last = ""
+    for line in log_text.splitlines():
+        m = _READY_RE.search(line)
+        if m:
+            last = m.group(2).strip()
+            continue
+        m2 = _MP4_RE.search(line)
+        if m2:
+            last = m2.group(1).strip()
+    return last
+
+
+PID_FILE = Path("temp/running_pid.txt")
+
+
+def save_pid(pid: int):
+    PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+    PID_FILE.write_text(str(pid), encoding="utf-8")
+
+
+def clear_pid():
+    try:
+        if PID_FILE.exists():
+            PID_FILE.unlink()
+    except Exception:
+        pass
+
+
+def get_pid() -> int | None:
+    try:
+        if PID_FILE.exists():
+            return int(PID_FILE.read_text().strip())
+    except Exception:
+        return None
+    return None
+
+
+def start_render_background(cmd: list[str], log_path: str) -> int:
+    """
+    Start subprocess non-blocking.
+    stdout/stderr -> file log_path
+    Save pid to PID_FILE so STOP can kill it.
+    """
+    Path(log_path).parent.mkdir(parents=True, exist_ok=True)
+    Path(log_path).write_text("", encoding="utf-8")
+
+    lf = open(log_path, "a", encoding="utf-8", buffering=1)
+    lf.write(f"=== MANUAL RENDER START {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+    lf.write("CMD: " + " ".join(cmd) + "\n")
+    lf.write("===========================================\n")
+    lf.flush()
+
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+        universal_newlines=True,
+        start_new_session=True,
+    ) 
+
+    st.session_state.smi_proc = proc
+
+    clear_pid()
+    save_pid(proc.pid)
+    return proc.pid
+
+
+def kill_pid_hard(pid: int):
+    """
+    SIGTERM then SIGKILL if still alive.
+    """
+    try:
+        os.kill(pid, signal.SIGTERM)
+        time.sleep(0.6)
+    except Exception:
+        pass
+    try:
+        # still alive?
+        os.kill(pid, 0)
+        os.kill(pid, signal.SIGKILL)
+    except Exception:
+        pass
+
+
+# -------------------------
+# Helpers: Pexels
+# -------------------------
+def _pexels_headers() -> dict:
+    key = (os.getenv("PEXELS_API_KEY") or "").strip()
+    if not key:
+        return {}
+    return {
+        "Authorization": key,
+        "User-Agent": "Mozilla/5.0 (compatible; AutoFactBot/1.0)",
+        "Accept": "application/json",
+    }
+
+
+def _pexels_search_photos(query: str, per_page: int = 12, page: int = 1) -> list[dict]:
+    headers = _pexels_headers()
+    if not headers:
+        return []
+    params = {"query": query, "per_page": int(per_page), "page": int(page)}
+    r = requests.get(PEXELS_PHOTO_API, headers=headers, params=params, timeout=25)
+    r.raise_for_status()
+    data = r.json() or {}
+    return data.get("photos", []) or []
+
+
+def _download_bin(url: str, out_path: Path, headers: dict) -> bool:
+    try:
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        rr = requests.get(url, headers=headers, stream=True, timeout=60)
+        rr.raise_for_status()
+        with open(out_path, "wb") as f:
+            for chunk in rr.iter_content(chunk_size=1024 * 256):
+                if chunk:
+                    f.write(chunk)
+        return True
+    except Exception:
+        return False
+
+
+# -------------------------
+# Helpers: misc
+# -------------------------
+def _safe_slug(name: str) -> str:
+    keep = []
+    for ch in (name or ""):
+        if ch.isalnum():
+            keep.append(ch.lower())
+        elif ch in ("-", "_"):
+            keep.append(ch)
+        elif ch.isspace():
+            keep.append("_")
+    out = "".join(keep).strip("_")
+    return out[:80] or "content"
+
+
+def _list_txt_files(folder: Path) -> list[Path]:
+    if not folder.exists():
+        return []
+    return sorted(folder.glob("*.txt"))
+
+
+def _read_text(p: Path) -> str:
+    try:
+        return p.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return p.read_text(errors="replace")
+
+
+def _guess_query_from_txt(txt_path: Path, raw: str) -> str:
+    stem = txt_path.stem.replace("_", " ").replace("-", " ")
+    head = " ".join((raw or "").strip().split()[:10])
+    q = (stem + " " + head).strip()
+    return q[:120] if q else stem[:80]
+
+
+def _ensure_state():
+    defaults = {
+        "smi_px_results": [],
+        "smi_selected_5": [],
+        "smi_last_query": "",
+        "smi_running": False,
+        "smi_started": False,
+        "smi_cmd": [],
+        "smi_log_path": "",
+        "smi_started_at": 0.0,
+        "smi_proc": None,
+        "smi_out_mp4": "",
+    }
+    for k, v in defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+
+def _is_selected(pid: int) -> bool:
+    return any(x.get("pid") == pid for x in st.session_state.smi_selected_5)
+
+
+def _toggle_select(item: dict, max_pick: int = 5) -> tuple[bool, str]:
+    pid = item.get("pid")
+    if pid is None:
+        return False, "Invalid item"
+
+    if _is_selected(pid):
+        st.session_state.smi_selected_5 = [x for x in st.session_state.smi_selected_5 if x.get("pid") != pid]
+        return True, "Removed"
+
+    if len(st.session_state.smi_selected_5) >= max_pick:
+        return False, f"Maksimal {max_pick} images. Unselect dulu salah satu."
+
+    st.session_state.smi_selected_5.append(
+        {
+            "pid": pid,
+            "full_url": item.get("full_url", ""),
+            "thumb_url": item.get("thumb_url", ""),
+            "photographer": item.get("photographer", ""),
+            "local": "",
+        }
+    )
+    return True, "Added"
+
+
+# =========================
+# Main UI
+# =========================
+def render(ctx=None):
+    _ensure_state()
+
+    st.markdown(
+        """
+    <style>
+    .rv-logbox{
+      height: 280px;
+      overflow-y: auto;
+      border-radius: 14px;
+      padding: 12px 14px;
+      margin-top: 8px;
+      margin-bottom: 14px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.10);
+      box-shadow: 0 10px 30px rgba(0,0,0,0.20);
+      backdrop-filter: blur(10px);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono","Courier New", monospace;
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: rgba(255,255,255,0.90);
+      white-space: normal;
+    }
+    @media (prefers-color-scheme: light){
+      .rv-logbox{
+        background: rgba(0,0,0,0.03);
+        border: 1px solid rgba(0,0,0,0.10);
+        color: rgba(0,0,0,0.88);
+      }
+    }
+    .rv-logbox::-webkit-scrollbar{ width: 10px; }
+    .rv-logbox::-webkit-scrollbar-thumb{
+      background: rgba(255,255,255,0.18);
+      border-radius: 999px;
+      border: 2px solid transparent;
+      background-clip: content-box;
+    }
+    @media (prefers-color-scheme: light){
+      .rv-logbox::-webkit-scrollbar-thumb{ background: rgba(0,0,0,0.18); }
+    }
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    st.subheader("🖼️ Short (Pexels Search) — Pilih 5 Images")
+    st.caption("Search image Pexels (max 24) → pilih tepat 5 → render dengan progress/log/preview (STOP aktif).")
+
+    headers = _pexels_headers()
+    if not headers:
+        st.warning("PEXELS_API_KEY belum diset. Tambahkan di environment/.env agar bisa search image dari Pexels.")
+        st.code("PEXELS_API_KEY=YOUR_KEY_HERE", language="bash")
+
+    # ---- pick topic + txt
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        topic = st.selectbox("Topic", ["faktaunik", "automotif"], index=0, key="smi_topic")
+
+    topic_dir = CONTENT_ROOT / topic
+    txt_files = _list_txt_files(topic_dir)
+    txt_names = [p.name for p in txt_files]
+
+    with c2:
+        picked = st.selectbox("Pilih content .txt", ["- pilih -"] + txt_names, index=0, key="smi_txt")
+
+    if picked == "- pilih -" or not txt_files:
+        st.info(f"Pilih file .txt dari folder: `{topic_dir}`")
+        return
+
+    txt_path = topic_dir / picked
+    raw = _read_text(txt_path)
+
+    st.markdown("### Preview Content")
+    st.code(raw[:2500] + ("\n...\n" if len(raw) > 2500 else ""), language="text")
+
+    # ---- search controls
+    st.divider()
+    st.markdown("### Search Image dari Pexels")
+
+    default_q = _guess_query_from_txt(txt_path, raw)
+    if not st.session_state.smi_last_query:
+        st.session_state.smi_last_query = default_q
+
+    q = st.text_input("Keyword search", value=st.session_state.smi_last_query, key="smi_q")
+    st.session_state.smi_last_query = q
+
+    r1, r2, r3, r4 = st.columns([1, 1, 1, 2])
+    with r1:
+        page = st.number_input("Page", min_value=1, max_value=50, value=1, step=1, key="smi_page")
+    with r2:
+        per_page = st.number_input("Hasil (max 24)", min_value=5, max_value=24, value=12, step=1, key="smi_perpage")
+    with r3:
+        auto_dl = st.checkbox("Auto download saat Select", value=True, key="smi_auto_dl")
+    with r4:
+        search_btn = st.button("🔎 Search Pexels", type="primary", width="stretch", disabled=not bool(headers), key="smi_search_btn")
+
+    sA, sB, sC = st.columns([1.3, 1.3, 2.4])
+    with sA:
+        st.metric("Selected", f"{len(st.session_state.smi_selected_5)}/5")
+    with sB:
+        if st.button("🧹 Clear Selected", width="stretch", key="smi_clear_sel"):
+            st.session_state.smi_selected_5 = []
+            st.rerun()
+    with sC:
+        st.info("Wajib pilih **tepat 5 images** untuk render.")
+
+    if search_btn and headers:
+        try:
+            st.session_state.smi_px_results = _pexels_search_photos(q, per_page=int(per_page), page=int(page))
+            st.toast(f"Found {len(st.session_state.smi_px_results)} images", icon="✅")
+        except Exception as e:
+            st.error(f"Pexels search error: {e}")
+
+    results = st.session_state.smi_px_results or []
+    if results:
+        st.markdown("### Hasil Search")
+        cols = st.columns(4)
+        content_slug = _safe_slug(txt_path.stem)
+
+        for idx, p in enumerate(results):
+            with cols[idx % 4]:
+                src = (p.get("src") or {})
+                thumb = src.get("medium") or src.get("small") or src.get("tiny")
+                full = src.get("large2x") or src.get("large") or src.get("original")
+                pid = p.get("id")
+                photographer = p.get("photographer", "")
+
+                if thumb:
+                    st.image(thumb)
+                st.caption(photographer)
+
+                selected_now = _is_selected(pid)
+                label = "✅ Unselect" if selected_now else "➕ Select"
+                if st.button(label, key=f"smi_sel_{pid}", width="stretch"):
+                    changed, msg = _toggle_select(
+                        {"pid": pid, "full_url": full or "", "thumb_url": thumb or "", "photographer": photographer or ""},
+                        max_pick=5,
+                    )
+
+                    if not changed:
+                        st.warning(msg)
+                    else:
+                        if msg == "Added" and auto_dl and full:
+                            out_dir = UPLOAD_DIR / topic / content_slug
+                            out_path = out_dir / f"img_{len(st.session_state.smi_selected_5):02d}_pexels_{pid}.jpg"
+                            ok = _download_bin(full, out_path, headers=headers)
+                            if not ok:
+                                st.session_state.smi_selected_5 = [x for x in st.session_state.smi_selected_5 if x.get("pid") != pid]
+                                st.error("Download gagal. Selection dibatalkan.")
+                            else:
+                                for x in st.session_state.smi_selected_5:
+                                    if x.get("pid") == pid:
+                                        x["local"] = str(out_path.resolve())
+                                        break
+                        st.rerun()
+    else:
+        st.info("Klik **Search Pexels** untuk menampilkan hasil.")
+
+    # ---- selected preview + download missing
+    st.divider()
+    st.markdown("### Selected Images (harus 5)")
+    sel = st.session_state.smi_selected_5
+
+    if sel:
+        pcols = st.columns(5)
+        for i in range(5):
+            with pcols[i]:
+                if i < len(sel):
+                    item = sel[i]
+                    local = item.get("local", "")
+                    thumb = item.get("thumb_url", "")
+                    st.write(f"**#{i+1}**")
+                    if local and Path(local).exists():
+                        st.image(local)
+                    elif thumb:
+                        st.image(thumb)
+                        st.caption("Preview (belum didownload)")
+                    if st.button("🗑️ Remove", key=f"smi_rm_{item.get('pid')}", width="stretch"):
+                        st.session_state.smi_selected_5.pop(i)
+                        st.rerun()
+                else:
+                    st.caption("Kosong")
+
+        missing = [x for x in sel if not x.get("local") or not Path(x["local"]).exists()]
+        if missing:
+            if st.button("⬇️ Download yang belum ada", width="stretch", disabled=not bool(headers), key="smi_dl_missing"):
+                content_slug = _safe_slug(txt_path.stem)
+                out_dir = UPLOAD_DIR / topic / content_slug
+                for j, x in enumerate(sel, start=1):
+                    pid0 = x.get("pid")
+                    full0 = x.get("full_url", "")
+                    if not full0:
+                        continue
+                    out_path = out_dir / f"img_{j:02d}_pexels_{pid0}.jpg"
+                    if _download_bin(full0, out_path, headers=headers):
+                        x["local"] = str(out_path.resolve())
+                st.rerun()
+    else:
+        st.info("Belum ada image dipilih.")
+
+    # ---- manifest
+    MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
+    manifest_path = MANIFEST_DIR / f"{topic}_{_safe_slug(txt_path.stem)}_manual_5images.json"
+    manifest = {"topic": topic, "file": str(txt_path.resolve()), "pexels_query": q, "selected": sel, "require_count": 5}
+
+    if st.button("💾 Save Manifest", width="stretch", key="smi_save_manifest"):
+        manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+        st.success(f"Saved: {manifest_path}")
+
+    # ---- generate controls
+    st.divider()
+    st.markdown("### Generate Short (main.py)")
+
+    g0a, g0b, g0c = st.columns([1.2, 1.2, 1])
+    with g0a:
+        cinematic = st.checkbox("Cinematic", value=False, key="smi_cinematic")
+    with g0b:
+        refresh_bg = st.checkbox("Refresh BG", value=False, key="smi_refresh_bg")
+    with g0c:
+        seconds = st.number_input("Seconds (0 = default)", 0, 120, 0, 1, key="smi_seconds")
+
+    h1, h2 = st.columns([1.2, 1.8])
+    with h1:
+        hook_subtitle = st.text_input("Hook subtitle", value="FAKTA CEPAT", key="smi_hook_subtitle")
+    with h2:
+        handle = st.text_input("Handle (@...)", value="@yourchannel", key="smi_handle")
+
+    w1, w2, w3 = st.columns([1.2, 1, 1])
+    with w1:
+        watermark_enabled = st.checkbox("Enable watermark", value=True, key="smi_wm_enabled")
+    with w2:
+        watermark_opacity = st.number_input("Watermark opacity (0-255)", 0, 255, 120, 5, key="smi_wm_opacity")
+    with w3:
+        watermark_pos = st.selectbox("Watermark position", ["top-right", "top-left", "bottom-right", "bottom-left"], 0, key="smi_wm_pos")
+
+    t1, t2 = st.columns([1.2, 1.8])
+    with t1:
+        tts_engine = st.selectbox("TTS engine", ["gtts", "elevenlabs"], 0, key="smi_tts_engine")
+    with t2:
+        seed = st.text_input("Seed (optional)", value="", key="smi_seed")
+
+    if tts_engine == "elevenlabs":
+        e1, e2, e3 = st.columns([1.2, 1.2, 1.6])
+        with e1:
+            eleven_voice = st.text_input("Eleven voice_id (optional)", value="", key="smi_eleven_voice")
+        with e2:
+            eleven_mode = st.selectbox("Eleven voice mode", ["fixed", "random_video", "random_line"], 0, key="smi_eleven_mode")
+        with e3:
+            eleven_pool = st.text_input("Eleven voice pool (comma-separated, optional)", value="", key="smi_eleven_pool")
+    else:
+        eleven_voice, eleven_mode, eleven_pool = "", "fixed", ""
+
+    cmd = ["python", "main.py", "--mode", "short", "--topic", topic, "--file", str(txt_path.resolve())]
+    if cinematic:
+        cmd.append("--cinematic")
+    if refresh_bg:
+        cmd.append("--refresh-bg")
+    if int(seconds) > 0:
+        cmd += ["--seconds", str(int(seconds))]
+    if hook_subtitle.strip():
+        cmd += ["--hook-subtitle", hook_subtitle.strip()]
+    if handle.strip():
+        cmd += ["--handle", handle.strip()]
+    if not watermark_enabled:
+        cmd.append("--no-watermark")
+    else:
+        cmd += ["--watermark-opacity", str(int(watermark_opacity)), "--watermark-position", watermark_pos]
+    cmd += ["--tts", tts_engine]
+    if seed.strip():
+        cmd += ["--seed", seed.strip()]
+    if tts_engine == "elevenlabs":
+        if eleven_voice.strip():
+            cmd += ["--eleven-voice", eleven_voice.strip()]
+        cmd += ["--eleven-voice-mode", eleven_mode]
+        if eleven_pool.strip():
+            cmd += ["--eleven-voice-pool", eleven_pool.strip()]
+
+    # manual manifest
+    cmd += ["--manual", "--manual-manifest", str(manifest_path.resolve())]
+
+    st.code(" ".join(cmd), language="bash")
+
+    can_generate = (len(sel) == 5) and all(x.get("local") and Path(x["local"]).exists() for x in sel)
+    if len(sel) != 5:
+        st.warning("Pilih **tepat 5 images** dulu.")
+    elif not can_generate:
+        st.warning("Ada image yang belum didownload. Klik **Download yang belum ada** dulu.")
+
+    # ====== STOP + STATUS (selalu tampil) ======
+    pid = get_pid()
+
+    stop_col1, stop_col2 = st.columns([1, 3])
+    with stop_col1:
+        stop_btn = st.button(
+            "🛑 STOP",
+            type="primary",
+            width="stretch",
+            disabled=(not pid),
+            key="smi_stop_btn",
+        )
+        if stop_btn and pid:
+            kill_pid_hard(int(pid))
+            clear_pid()
+            st.session_state.smi_running = False
+            st.session_state.smi_proc = None
+            st.toast("🛑 Render dihentikan.", icon="🛑")
+            st.rerun()
+
+    with stop_col2:
+        if pid:
+            st.warning(f"⚠️ Rendering sedang berjalan (PID {pid}). Klik STOP untuk menghentikan.")
+        else:
+            st.info("Siap render.")
+
+    # placeholders (tetap)
+    status_text = st.status("Status: idle", expanded=False)
+    p_bar = st.progress(0.0)
+    log_placeholder = st.empty()
+
+    gen = st.button(
+        "🎬 Generate",
+        type="primary",
+        width="stretch",
+        disabled=st.session_state.smi_running or (not can_generate),
+        key="smi_generate_btn",
+    )
+
+    if gen:
+        missing_local = [x for x in sel if not x.get("local") or not Path(x["local"]).exists()]
+        if missing_local:
+            st.error("Masih ada image belum didownload.")
+            st.stop()
+
+        # save manifest
+        manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
+
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        log_path = str(LOG_DIR / f"manual_render_{int(time.time())}.log")
+
+        st.session_state.smi_running = True
+
+        pid = start_render_background(cmd, log_path)
+
+        st.session_state.smi_running = True
+        st.session_state.smi_log_path = log_path
+        st.session_state.smi_started_at = time.time()
+        st.session_state.smi_out_mp4 = ""
+
+        st.toast(f"▶️ Rendering dimulai (PID {pid})", icon="🎬")
+        st.rerun()
+
+        # Preview setelah selesai
+        if out_mp4 and Path(out_mp4).exists():
+            st.divider()
+            st.markdown("### Preview Output")
+            st.video(out_mp4)
+            with open(out_mp4, "rb") as f:
+                st.download_button(
+                    "⬇️ Download Output",
+                    f,
+                    file_name=Path(out_mp4).name,
+                    mime="video/mp4",
+                    width="stretch",
+                    key="smi_dl_out",
+                )
+        else:
+            # fallback: newest mp4
+            out_dir_guess = Path("out") / topic
+            if out_dir_guess.exists():
+                mp4s = sorted(out_dir_guess.glob("*.mp4"), key=lambda p: p.stat().st_mtime, reverse=True)
+                if mp4s:
+                    st.divider()
+                    st.markdown("### Preview Output (fallback)")
+                    st.video(str(mp4s[0]))
+
+        # rerun buat reset UI
+        st.rerun()
+    logs = []
+    MAX_LINES = 250
+    last_log_line = None
+        
+    # ====== Running monitor (INI YANG BIKIN STATUS TIDAK IDLE) ======
+    pid = get_pid()
+    if pid and st.session_state.smi_proc:
+        proc = st.session_state.smi_proc
+
+        
+        log_f = None
+        if log_path:
+            log_f = open(log_path, "a", encoding="utf-8", buffering=1)
+            log_f.write(f"=== REVIEW RENDER START {time.strftime('%Y-%m-%d %H:%M:%S')} ===\n")
+            log_f.write("CMD: " + " ".join(cmd_render) + "\n")
+            log_f.write("===========================================\n")
+
+        while True:
+            line = proc.stdout.readline() if proc.stdout else ""
+            if not line and proc.poll() is not None:
+                break
+            if not line:
+                continue 
+
+            parts = line.replace("\r", "\n").split("\n")
+            for p in parts:
+                clean_l = p.strip()
+                if not clean_l:
+                    continue
+
+                # anti duplicate consecutive
+                if clean_l == last_log_line:
+                    continue
+                last_log_line = clean_l
+
+                # progress detect (pakai % / frame_index)
+                if ("%" in clean_l) or ("frame_index" in clean_l.lower()):
+                    m = re.search(r"(\d{1,3})\s*%", clean_l)
+                    if m:
+                        val = int(m.group(1))
+                        prog = min(max(val / 100.0, 0.0), 1.0)
+                        p_bar.progress(prog)
+                        status_text.update(label=f"⏳ Rendering Video... {val}%", state="running")
+                    continue
+
+                # tulis ke file log
+                if log_f:
+                    log_f.write(clean_l + "\n")
+
+                # update logbox UI
+                logs.append(clean_l)
+                if len(logs) > MAX_LINES:
+                    logs = logs[-MAX_LINES:]
+
+                safe_lines = [html.escape(x) for x in logs]
+                log_placeholder.markdown(
+                    f'<div class="cp-logbox">{"<br>".join(safe_lines)}</div>',
+                    unsafe_allow_html=True
+                )
+            # progress (%)
+#            m = re.search(r"(\d{1,3})\s*%", clean)
+#            if m:
+#                p_bar.progress(int(m.group(1)) / 100.0)
+
+        # selesai?
+        alive = _pid_alive(int(pid))
+        if not alive:
+            clear_pid()
+            st.session_state.smi_running = False
+            p_bar.progress(1.0)
+            status_text.update(label="✅ Render selesai!", state="complete")
+
+            out_mp4 = _extract_last_mp4_from_log_text(log_text)
+            st.session_state.smi_out_mp4 = out_mp4
+
+            st.session_state.smi_proc = None
+
+            st.divider()
+            st.markdown("### Preview Output")
+            if out_mp4 and Path(out_mp4).exists():
+                st.video(out_mp4)
+                with open(out_mp4, "rb") as f:
+                    st.download_button(
+                        "⬇️ Download Output",
+                        f,
+                        file_name=Path(out_mp4).name,
+                        mime="video/mp4",
+                        width="stretch",
+                        key="smi_dl_out",
+                    )
+            else:
+                st.info("Output mp4 belum terdeteksi dari log. Cek folder `out/` atau log file.")

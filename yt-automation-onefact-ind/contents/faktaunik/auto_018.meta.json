@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Sehari di Venus lebih lama dari setahun",
+  "hook": "Kalender paling absurd di tata surya!",
+  "cta": "Kebayang kerja lembur di Venus?",
+  "query": "",
+  "bg": {
+    "query": "planet venus space realistic illustration",
+    "variants": [
+      "venus atmosphere",
+      "venus planet render"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

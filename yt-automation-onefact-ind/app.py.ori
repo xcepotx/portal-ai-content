@@ -1,0 +1,77 @@
+import streamlit as st
+
+from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env", override=True)
+
+st.set_page_config(
+    page_title="Content Generator",
+    page_icon="🎬",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+from ui.styles import inject_styles
+from ui.sidebar import render_sidebar
+from auth import sidebar_logout_bottom
+from auth import require_login
+from tabs import (
+    control_panel,
+    file_manager,
+    templates,
+    hook_cta,
+    long_video,
+    pexels_mixer,
+    merge_images,
+    ai_chatbot_gemini,
+    tab_auto_stock_video,
+)
+
+require_login(app_title="YT Automation Login")
+
+# optional: tampilkan info user & tombol logout di sidebar
+inject_styles()
+config = render_sidebar()
+ctx = {"config": config}
+
+sidebar_logout_bottom()
+st.sidebar.success(f"Login: {st.session_state.get('auth_user','')} | role: {st.session_state.get('auth_role','')}")
+
+role = st.session_state.get("auth_role", "admin")
+
+if role == "viewer":
+    tabs = st.tabs([
+        "🎬 Auto Stock",
+        "📝 Templates",
+        "🎣 Hook & CTA",
+        "🤖 AI Chatbot"
+    ])
+
+    with tabs[0]: tab_auto_stock_video.render(ctx)
+    with tabs[1]: templates.render(ctx)
+    with tabs[2]: hook_cta.render(ctx)
+    with tabs[3]: ai_chatbot_gemini.render()
+
+else:
+    tabs = st.tabs([
+        "🚀 Short Video",
+        "📺 Long Video",
+        "🎞️ Merge Video",
+        "🎬 Auto Stock",     # ✅ admin lihat tab ini juga
+        "📸 Merge Images",
+        "📁 File Manager",
+        "📝 Templates",
+        "🎣 Hook & CTA",
+        "🤖 AI Chatbot"
+    ])
+
+    with tabs[0]: control_panel.render(ctx)
+    with tabs[1]: long_video.render(ctx)
+    with tabs[2]: pexels_mixer.render(ctx)
+    with tabs[3]: tab_auto_stock_video.render(ctx)   # ✅ ADD
+    with tabs[4]: merge_images.render(ctx)
+    with tabs[5]: file_manager.render(ctx)
+    with tabs[6]: templates.render(ctx)
+    with tabs[7]: hook_cta.render(ctx)
+    with tabs[8]: ai_chatbot_gemini.render()

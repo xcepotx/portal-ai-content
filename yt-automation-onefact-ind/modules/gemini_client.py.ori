@@ -1,0 +1,474 @@
+import os
+import time
+import socket
+import json
+import logging
+import re
+from pathlib import Path
+from typing import List, Dict, Any, Union, Optional
+import urllib.request
+import urllib.error
+
+# Optional: tetap support SDK lama kalau ada
+try:
+    import google.generativeai as genai  # type: ignore
+    _HAS_OLD_SDK = True
+except Exception:
+    genai = None  # type: ignore
+    _HAS_OLD_SDK = False
+
+os.makedirs("logs", exist_ok=True)
+LOG_PATH = "logs/gemini_chat.log"
+
+logging.basicConfig(
+    filename=LOG_PATH,
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+)
+
+OpenAILikeMsg = Dict[str, str]  # {"role": "...", "content": "..."}
+
+
+def _normalize_model_name(name: str) -> str:
+    name = (name or "").strip()
+    if name.startswith("models/"):
+        name = name.split("/", 1)[1]
+    return name
+
+
+def _strip_code_fences(s: str) -> str:
+    s = (s or "").strip()
+    s = re.sub(r"^\s*```(?:json)?\s*", "", s, flags=re.IGNORECASE)
+    s = re.sub(r"\s*```\s*$", "", s).strip()
+    return s
+
+
+def _extract_outer_json(s: str) -> str:
+    s = (s or "").strip()
+    i_obj = s.find("{")
+    i_arr = s.find("[")
+    if i_obj == -1 and i_arr == -1:
+        return s
+
+    if i_arr != -1 and (i_obj == -1 or i_arr < i_obj):
+        i = i_arr
+        j = s.rfind("]")
+    else:
+        i = i_obj
+        j = s.rfind("}")
+
+    if i != -1 and j != -1 and j > i:
+        return s[i:j+1].strip()
+    return s
+
+
+def _sanitize_json_text(s: str) -> str:
+    """
+    Sanitize output Gemini supaya json.loads() tahan banting:
+    - normalize smart quotes
+    - escape newline/tab literal di dalam string
+    - heuristic lebih kuat: bedakan quote penutup string vs quote di tengah kalimat (mis: "mahal", dan ...)
+    - remove trailing comma sebelum } atau ]
+    """
+    s = (s or "")
+    s = s.lstrip("\ufeff")
+    s = s.replace("“", '"').replace("”", '"').replace("’", "'")
+
+    out: list[str] = []
+    in_str = False
+    esc = False
+    n = len(s)
+
+    def _next_nonspace_idx(start: int) -> int:
+        j = start
+        while j < n and s[j] in " \t\r\n":
+            j += 1
+        return j
+
+    for i, ch in enumerate(s):
+        if in_str:
+            if esc:
+                out.append(ch)
+                esc = False
+                continue
+
+            if ch == "\\":
+                out.append(ch)
+                esc = True
+                continue
+
+            if ch == '"':
+                j = _next_nonspace_idx(i + 1)
+                nn = s[j] if j < n else ""
+
+                # kandidat closing quote (JSON syntax)
+                if nn in (":", "}", "]", ""):
+                    out.append('"')
+                    in_str = False
+                    continue
+
+                if nn == ",":
+                    # Ambigu: bisa delimiter JSON, bisa tanda baca dalam kalimat.
+                    # Cek token setelah koma:
+                    k = _next_nonspace_idx(j + 1)
+                    nn2 = s[k] if k < n else ""
+                    # kalau setelah koma huruf/angka/('(') -> kemungkinan itu masih kalimat, jadi quote harus di-escape
+                    if nn2 and (nn2.isalnum() or nn2 in ("(", "-", "_")):
+                        out.append('\\"')
+                        continue
+                    # kalau setelah koma token JSON (quote/} / ]) -> ini closing quote beneran
+                    out.append('"')
+                    in_str = False
+                    continue
+
+                # selain itu: anggap quote ini quote di tengah kalimat → escape
+                out.append('\\"')
+                continue
+
+            # escape control chars inside string
+            if ch == "\n":
+                out.append("\\n"); continue
+            if ch == "\r":
+                out.append("\\r"); continue
+            if ch == "\t":
+                out.append("\\t"); continue
+
+            out.append(ch)
+        else:
+            if ch == '"':
+                out.append('"')
+                in_str = True
+            else:
+                out.append(ch)
+
+    s2 = "".join(out)
+    s2 = re.sub(r",\s*([}\]])", r"\1", s2)  # trailing comma
+    return s2
+
+def _salvage_fact_template(clean: str) -> str | None:
+    """
+    Kalau JSON kepotong, ambil facts yang objeknya sudah lengkap (brace balance),
+    lalu bikin JSON baru yang valid.
+    """
+    try:
+        title = "Template"
+        m = re.search(r'"title"\s*:\s*"([^"]*)"', clean)
+        if m:
+            title = m.group(1)
+
+        seconds = 30
+        m = re.search(r'"seconds"\s*:\s*(\d+)', clean)
+        if m:
+            seconds = int(m.group(1))
+
+        k = clean.find('"facts"')
+        if k < 0:
+            return None
+        b = clean.find("[", k)
+        if b < 0:
+            return None
+
+        facts: list[dict] = []
+        i = b + 1
+        n = len(clean)
+
+        in_str = False
+        esc = False
+        depth = 0
+        start_obj = -1
+
+        while i < n:
+            ch = clean[i]
+
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                i += 1
+                continue
+
+            # not in string
+            if ch == '"':
+                in_str = True
+                i += 1
+                continue
+
+            if ch == "{":
+                if depth == 0:
+                    start_obj = i
+                depth += 1
+            elif ch == "}":
+                if depth > 0:
+                    depth -= 1
+                    if depth == 0 and start_obj >= 0:
+                        obj_txt = clean[start_obj:i+1]
+                        try:
+                            obj = json.loads(obj_txt)
+                            if isinstance(obj, dict):
+                                facts.append(obj)
+                        except Exception:
+                            pass
+                        start_obj = -1
+            elif ch == "]" and depth == 0:
+                break
+
+            i += 1
+
+        if not facts:
+            return None
+
+        data = {"title": title, "seconds": seconds, "facts": facts}
+        return json.dumps(data, ensure_ascii=False, indent=2)
+    except Exception:
+        return None
+        
+class GeminiClient:
+    """
+    - Default: pakai SDK lama google.generativeai (kalau tersedia) untuk text biasa.
+    - Jika force_json=True: pakai REST v1beta generateContent,
+      karena JSON schema lebih stabil via REST.
+    """
+
+    def __init__(self, api_key: str, model: Optional[str] = None, timeout: int = 30):
+        self.api_key = (api_key or "").strip()
+        self.timeout = int(timeout)
+
+        default_model = (os.getenv("GEMINI_MODEL") or "gemini-flash-latest").strip()
+        self.model_name = _normalize_model_name(model or default_model)
+
+        self._old_model = None
+        if _HAS_OLD_SDK and self.api_key:
+            try:
+                genai.configure(api_key=self.api_key)  # type: ignore
+                self._old_model = genai.GenerativeModel(self.model_name)  # type: ignore
+            except Exception as e:
+                logging.warning(f"Old SDK init failed, will fallback to REST. err={e}")
+                self._old_model = None
+
+    def _to_contents(self, messages: Union[str, List[Dict[str, Any]]]) -> Any:
+        if isinstance(messages, str):
+            return [{"role": "user", "parts": [{"text": messages}]}]
+
+        contents = []
+        for m in messages:
+            role = (m.get("role") or "user").strip().lower()
+            # Gemini REST: role biasanya user/model
+            if role == "assistant":
+                role = "model"
+            elif role not in ("user", "model"):
+                role = "user"
+
+            text = (m.get("content") or m.get("text") or "").strip()
+            if not text:
+                continue
+            contents.append({"role": role, "parts": [{"text": text}]})
+
+        if not contents:
+            contents = [{"role": "user", "parts": [{"text": ""}]}]
+        return contents
+
+    def _rest_generate(
+        self,
+        contents: Any,
+        temperature: float,
+        max_tokens: int,
+        force_json: bool,
+        json_schema: Optional[dict],
+    ) -> str:
+        url = (
+            f"https://generativelanguage.googleapis.com/v1beta/"
+            f"models/{self.model_name}:generateContent?key={self.api_key}"
+        )
+
+        gen_cfg: Dict[str, Any] = {
+            "temperature": float(temperature),
+            "maxOutputTokens": int(max_tokens),
+        }
+
+        if force_json:
+            gen_cfg["responseMimeType"] = "application/json"
+            if json_schema:
+                gen_cfg["responseJsonSchema"] = json_schema
+
+        payload = {"contents": contents, "generationConfig": gen_cfg}
+        data = json.dumps(payload).encode("utf-8")
+
+        req = urllib.request.Request(
+            url,
+            data=data,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        with urllib.request.urlopen(req, timeout=self.timeout) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+
+        j = json.loads(raw)
+        self._last_api_json = j
+
+        cands = j.get("candidates") or []
+        if not cands:
+            pf = j.get("promptFeedback")
+            raise RuntimeError(f"No candidates returned. promptFeedback={pf}")
+
+        content = cands[0].get("content") or {}
+        parts = content.get("parts") or []
+        if not parts:
+            raise RuntimeError("No parts in candidate content.")
+
+        # ✅ gabung semua parts biar gak kepotong
+        text = "".join([str(p.get("text") or "") for p in parts]).strip()
+
+        cand0 = cands[0] if cands else {}
+        finish = cand0.get("finishReason")
+        safety = cand0.get("safetyRatings")
+        logging.warning(f"[Gemini] finishReason={finish} safety={safety}")
+
+        return text
+
+    def generate(
+        self,
+        messages: Union[str, List[OpenAILikeMsg]],
+        temperature: float = 0.7,
+        max_tokens: int = 1024,
+        retries: int = 3,
+        backoff_base: float = 2.0,
+        force_json: bool = False,
+        json_schema: dict | None = None,
+    ) -> Dict[str, Any]:
+        contents = self._to_contents(messages)
+        attempt = 0
+
+        while True:
+            try:
+                if force_json:
+                    # retry khusus JSON invalid (model kadang kepotong / gak nutup quote)
+                    last_err = None
+                    contents_try = contents
+                    temp_try = float(temperature)
+
+                    for jtry in range(3):
+                        raw_text = self._rest_generate(
+                            contents=contents_try,
+                            temperature=temp_try,
+                            max_tokens=max_tokens,
+                            force_json=True,
+                            json_schema=json_schema,
+                        )
+
+                        clean = _strip_code_fences(raw_text)
+                        clean = _extract_outer_json(clean)
+                        clean = _sanitize_json_text(clean)
+
+                        try:
+                            json.loads(clean)
+                            return {"text": clean, "usage": None, "raw": None}
+                        except json.JSONDecodeError as e:
+                            last_err = e
+
+                            # kalau ada salvage (kalau kamu sudah pasang) boleh dipakai
+                            try:
+                                salv = _salvage_fact_template(clean)  # optional, kalau function ada
+                                if salv:
+                                    logging.warning("Gemini JSON invalid -> salvaged partial facts.")
+                                    return {"text": salv, "usage": None, "raw": None}
+                            except Exception:
+                                pass
+
+                            # retry berikutnya: paksa ulang dari awal + temperature 0
+                            temp_try = 0.0
+                            contents_try = list(contents) + [{
+                                "role": "user",
+                                "parts": [{
+                                    "text": (
+                                        "PERBAIKI: Output sebelumnya JSON tidak valid / terpotong.\n"
+                                        "TULIS ULANG dari awal sebagai JSON yang lengkap dan valid.\n"
+                                        "Pastikan semua string ditutup dengan tanda kutip dan semua kurung { } [ ] tertutup.\n"
+                                        "Output JSON saja, tanpa penjelasan."
+                                    )
+                                }]
+                            }]
+
+                            # simpan dump untuk setiap kegagalan (biar kamu bisa lihat pola)
+                            os.makedirs("logs", exist_ok=True)
+                            ts = time.strftime("%Y%m%d_%H%M%S")
+                            Path("logs").joinpath(f"gemini_json_fail_RAW_{ts}_try{jtry+1}.txt").write_text(raw_text, encoding="utf-8", errors="ignore")
+                            Path("logs").joinpath(f"gemini_json_fail_CLEAN_{ts}_try{jtry+1}.txt").write_text(clean, encoding="utf-8", errors="ignore")
+
+                    # kalau masih gagal setelah retry:
+                    if last_err is not None:
+                        pos = int(getattr(last_err, "pos", 0) or 0)
+                        a = max(0, pos - 180)
+                        b = min(len(clean), pos + 180)
+                        snippet = clean[a:b]
+
+                        finish = None
+                            try:
+                                finish = ((getattr(self, "_last_api_json", {}) or {}).get("candidates") or [{}])[0].get("finishReason")
+                            except Exception:
+                                pass
+
+                        raise RuntimeError(
+                            f"Invalid JSON from Gemini after retries: {last_err.msg} | "
+                            f"line={last_err.lineno} col={last_err.colno} pos={pos}\n"
+                            f"Snippet:\n{snippet!r}\n"
+                            f"See logs/gemini_json_fail_* for dumps."
+                        ) from last_err
+
+                    raise RuntimeError("Invalid JSON from Gemini after retries.")
+
+                # Text biasa: coba SDK lama dulu
+                if self._old_model is not None:
+                    response = self._old_model.generate_content(  # type: ignore
+                        contents,
+                        generation_config={
+                            "temperature": float(temperature),
+                            "max_output_tokens": int(max_tokens),
+                        },
+                        request_options={"timeout": self.timeout},
+                    )
+                    text = getattr(response, "text", "") or ""
+                    return {"text": text, "usage": getattr(response, "usage_metadata", None), "raw": response}
+
+                # Fallback REST untuk text biasa
+                text = self._rest_generate(
+                    contents=contents,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    force_json=False,
+                    json_schema=None,
+                )
+                return {"text": text, "usage": None, "raw": None}
+
+            except urllib.error.HTTPError as e:
+                body = ""
+                try:
+                    body = e.read().decode("utf-8", errors="replace")
+                except Exception:
+                    pass
+                logging.warning(f"Gemini HTTPError {e.code}: {body}")
+                if e.code not in (429, 500, 503):
+                    raise RuntimeError(f"Gemini HTTPError {e.code}: {body}") from e
+
+            except (TimeoutError, socket.timeout) as e:
+                logging.warning(f"Gemini timeout: {e}")
+
+            except urllib.error.URLError as e:
+                if "timed out" in str(getattr(e, "reason", "")).lower():
+                    logging.warning(f"Gemini URLError timeout: {e}")
+                else:
+                    logging.exception(f"Gemini URLError: {e}")
+                    raise
+
+            except Exception as e:
+                logging.exception(f"Gemini generate error: {e}")
+                raise
+
+            attempt += 1
+            if attempt > retries:
+                raise
+
+            time.sleep(backoff_base ** (attempt - 1))

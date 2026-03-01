@@ -1,0 +1,28 @@
+{
+  "topic": "faktaunik",
+  "slug": "langit_bisa_kelihatan_kayak_lautan",
+  "lines": [
+    "Langit bisa kelihatan kayak lautan!",
+    "FAKTA: Beberapa pola awan terbentuk karena perbedaan lapisan udara dan angin, terlihat seperti ombak.",
+    "Terjadi karena arus udara bergelombang.",
+    "Biasanya muncul di kondisi atmosfer tertentu.",
+    "Hasilnya visualnya dramatis.",
+    "Pernah lihat awan yang bikin merinding?"
+  ],
+  "tts_files": [
+    "/home/ubuntu01/yt-automation-onefact-ind/out/tts/single_gtts_tts_01_langit_bisa_kelihatan_kayak_laut_cc83e96a6a.mp3",
+    "/home/ubuntu01/yt-automation-onefact-ind/out/tts/single_gtts_tts_02_fakta_beberapa_pola_awan_terbent_769b28e608.mp3",
+    "/home/ubuntu01/yt-automation-onefact-ind/out/tts/single_gtts_tts_03_terjadi_karena_arus_udara_bergel_42f045410a.mp3",
+    "/home/ubuntu01/yt-automation-onefact-ind/out/tts/single_gtts_tts_04_biasanya_muncul_di_kondisi_atmos_15ea95bbf7.mp3",
+    "/home/ubuntu01/yt-automation-onefact-ind/out/tts/single_gtts_tts_05_hasilnya_visualnya_dramatis_43993d05b9.mp3",
+    "/home/ubuntu01/yt-automation-onefact-ind/out/tts/single_gtts_tts_06_pernah_lihat_awan_yang_bikin_mer_9eaa806cac.mp3"
+  ],
+  "bg_files": [
+    "segment_000.jpg",
+    "segment_001.jpg",
+    "segment_002.jpg",
+    "segment_003.jpg"
+  ],
+  "bgm": null,
+  "status": "draft"
+}

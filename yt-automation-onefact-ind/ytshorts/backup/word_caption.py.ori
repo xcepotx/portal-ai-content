@@ -1,0 +1,71 @@
+import os
+from typing import List
+
+from PIL import Image, ImageDraw, ImageFont
+
+from .config import W, H, CAP_FONT_SIZE, CAP_Y
+
+
+def _font(size: int):
+    try:
+        return ImageFont.truetype("DejaVuSans.ttf", size)
+    except Exception:
+        return ImageFont.load_default()
+
+
+def split_words(text: str) -> List[str]:
+    return [w for w in text.strip().split() if w.strip()]
+
+
+def _stroke_text(draw, xy, text, font, fill, stroke_fill=(0, 0, 0, 220), stroke=3):
+    x, y = xy
+    for dx in range(-stroke, stroke + 1):
+        for dy in range(-stroke, stroke + 1):
+            if dx == 0 and dy == 0:
+                continue
+            draw.text((x + dx, y + dy), text, font=font, fill=stroke_fill)
+    draw.text((x, y), text, font=font, fill=fill)
+
+
+def render_word_overlay(words_so_far: List[str], active_word: str, out_path: str) -> str:
+    """
+    PNG overlay karaoke-style:
+    - hanya tampilkan maksimal 3 kata terakhir
+    - ukuran font sama, beda warna saja
+    """
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+
+    font = _font(CAP_FONT_SIZE)
+
+    # bottom fade untuk readability
+    fade_top = int(H * 0.60)
+    for y in range(fade_top, H):
+        t = (y - fade_top) / max(1, (H - fade_top))
+        a = int(0 + 180 * (t ** 1.7))
+        d.line([(0, y), (W, y)], fill=(0, 0, 0, a))
+
+    # tampilkan max 3 kata terakhir
+    show = words_so_far[-3:] if len(words_so_far) > 3 else words_so_far
+
+    gap = 14
+    widths = [d.textlength(w, font=font) for w in show]
+    total_w = sum(widths) + gap * (len(show) - 1)
+
+    x = (W - total_w) / 2
+    y = CAP_Y
+
+    fill_active = (255, 215, 0, 255)      # kuning
+    fill_normal = (245, 245, 245, 235)    # putih redup
+
+    for idx, w in enumerate(show):
+        is_active = (idx == len(show) - 1)  # active selalu kata terakhir yang tampil
+        fill = fill_active if is_active else fill_normal
+
+        _stroke_text(d, (x, y), w, font, fill=fill, stroke=3)
+        x += d.textlength(w, font=font) + gap
+
+    img.save(out_path)
+    return out_path

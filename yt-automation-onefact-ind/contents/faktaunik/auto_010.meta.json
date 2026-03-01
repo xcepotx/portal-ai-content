@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Ada danau yang bisa “meledak”",
+  "hook": "Danau kok bisa bahaya?",
+  "cta": "Mau bahas fakta alam ekstrem lagi?",
+  "query": "",
+  "bg": {
+    "query": "volcanic lake mist realistic photo",
+    "variants": [
+      "crater lake",
+      "foggy lake"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

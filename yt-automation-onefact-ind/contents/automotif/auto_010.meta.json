@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Jaga kaca film jangan terlalu gelap",
+  "hook": "Kaca film gelap banget bikin bahaya malam!",
+  "cta": "Kaca film kamu berapa persen?",
+  "query": "",
+  "bg": {
+    "query": "night driving car interior dark tint realistic photo",
+    "variants": [
+      "car window tint dark",
+      "night driving visibility"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

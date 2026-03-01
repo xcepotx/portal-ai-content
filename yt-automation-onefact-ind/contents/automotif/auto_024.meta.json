@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Panaskan mobil secukupnya saja",
+  "hook": "Panaskan lama-lama itu mitos!",
+  "cta": "Kamu masih panasin 10 menit?",
+  "query": "",
+  "bg": {
+    "query": "car engine warm up idle realistic photo",
+    "variants": [
+      "engine idle warm up",
+      "car start morning"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

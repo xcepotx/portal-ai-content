@@ -1,0 +1,188 @@
+import json
+import re
+from pathlib import Path
+
+import streamlit as st
+
+
+def _ws_root(ctx) -> Path:
+    if isinstance(ctx, dict):
+        paths = ctx.get("paths") or {}
+        user_root = paths.get("user_root")
+        if user_root:
+            return Path(user_root).expanduser().resolve()
+    # fallback standalone: repo root (../)
+    return Path(__file__).resolve().parents[1]
+
+
+def _safe_filename(name: str) -> str:
+    name = (name or "").strip()
+    if not name:
+        name = "new_script.json"
+    if not name.lower().endswith(".json"):
+        name += ".json"
+    # buang path traversal & karakter aneh
+    name = name.replace("\\", "/").split("/")[-1]
+    name = re.sub(r"[^a-zA-Z0-9._-]+", "_", name)
+    if not name.lower().endswith(".json"):
+        name += ".json"
+    return name
+
+
+def _list_json_files(folder: Path) -> list[str]:
+    if not folder.exists():
+        return []
+    files = [p for p in folder.iterdir() if p.is_file() and p.name.lower().endswith(".json")]
+    files.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    return [p.name for p in files]
+
+
+def render(ctx):
+    st.header("📝 JSON Script Editor (Raw Mode)")
+
+    ws_root = _ws_root(ctx)
+    templates_dir = (ws_root / "templates").resolve()
+    templates_dir.mkdir(parents=True, exist_ok=True)
+
+    # info lokasi workspace
+    st.caption(f"Workspace: `{ws_root}`")
+    st.caption(f"Templates dir: `{templates_dir}`")
+
+    # role
+    role = ""
+    if isinstance(ctx, dict):
+        role = str(ctx.get("auth_role") or "")
+    if not role:
+        role = str(st.session_state.get("auth_role", "") or "")
+    can_edit = (role == "admin")
+
+    # init state
+    if "json_content" not in st.session_state:
+        st.session_state.json_content = (
+            '{\n'
+            '  "hook": "Tulis Hook Disini...",\n'
+            '  "lines": [\n'
+            '    "Fakta 1",\n'
+            '    "Fakta 2",\n'
+            '    "Fakta 3"\n'
+            "  ]\n"
+            "}\n"
+        )
+    if "json_filename" not in st.session_state:
+        st.session_state.json_filename = "new_script.json"
+
+    # Layout
+    col_list, col_editor = st.columns([1, 2])
+
+    # =========================
+    # LEFT: FILE MANAGER
+    # =========================
+    with col_list:
+        st.subheader("📂 File Manager")
+
+        existing_files = _list_json_files(templates_dir)
+        selected_file = st.selectbox("Pilih File:", ["-- Buat Baru --"] + existing_files, key="tpl_selected_file")
+
+        c1, c2 = st.columns(2)
+        with c1:
+            load_clicked = st.button("📂 Load", use_container_width=True)
+        with c2:
+            refresh_clicked = st.button("🔄 Refresh", use_container_width=True)
+
+        if refresh_clicked:
+            st.rerun()
+
+        if load_clicked:
+            if selected_file == "-- Buat Baru --":
+                st.session_state.json_content = (
+                    '{\n'
+                    '  "hook": "Tulis Hook Disini...",\n'
+                    '  "lines": [\n'
+                    '    "Fakta 1",\n'
+                    '    "Fakta 2",\n'
+                    '    "Fakta 3"\n'
+                    "  ]\n"
+                    "}\n"
+                )
+                st.session_state.json_filename = "new_script.json"
+                st.success("Template baru dibuat.")
+                st.rerun()
+            else:
+                path = (templates_dir / selected_file).resolve()
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8", errors="strict"))
+                    st.session_state.json_content = json.dumps(data, indent=2, ensure_ascii=False)
+                    st.session_state.json_filename = selected_file
+                    st.success(f"Loaded: {selected_file}")
+                    st.rerun()
+                except UnicodeDecodeError:
+                    # fallback
+                    raw = path.read_text(encoding="latin-1", errors="replace")
+                    try:
+                        data = json.loads(raw)
+                        st.session_state.json_content = json.dumps(data, indent=2, ensure_ascii=False)
+                        st.session_state.json_filename = selected_file
+                        st.success(f"Loaded: {selected_file} (latin-1 fallback)")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error loading JSON: {e}")
+                except Exception as e:
+                    st.error(f"Error loading JSON: {e}")
+
+        st.divider()
+        st.caption("Tips: Template yang disimpan di sini akan dipakai mode Generate (workspace user).")
+
+    # =========================
+    # RIGHT: EDITOR
+    # =========================
+    with col_editor:
+        st.subheader("✍️ Edit Source Code")
+
+        new_filename = st.text_input(
+            "Nama File (.json)",
+            value=st.session_state.json_filename,
+            help="Nama file akan disanitasi. Ekstensi .json otomatis.",
+        )
+
+        json_body = st.text_area(
+            "JSON Content",
+            value=st.session_state.json_content,
+            height=520,
+            help="Pastikan JSON valid (kutip dua, koma, kurung).",
+        )
+
+        if not can_edit:
+            st.info("Akun ini mode VIEWER: hanya bisa melihat & preview. Tombol Simpan dinonaktifkan.")
+
+        col_save, col_validate = st.columns([1, 1])
+
+        with col_validate:
+            if st.button("✅ Validate JSON", use_container_width=True):
+                try:
+                    _ = json.loads(json_body)
+                    st.success("JSON valid.")
+                except json.JSONDecodeError as e:
+                    st.error("Format JSON Error!")
+                    st.code(f"Error di baris {e.lineno}, kolom {e.colno}: {e.msg}")
+
+        with col_save:
+            if st.button("💾 SIMPAN JSON", type="primary", use_container_width=True, disabled=not can_edit):
+                try:
+                    parsed_data = json.loads(json_body)
+
+                    safe_name = _safe_filename(new_filename)
+                    save_path = (templates_dir / safe_name).resolve()
+
+                    save_path.write_text(json.dumps(parsed_data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+                    st.session_state.json_content = json.dumps(parsed_data, indent=2, ensure_ascii=False)
+                    st.session_state.json_filename = safe_name
+
+                    st.success(f"✅ Tersimpan: {safe_name}")
+                    st.rerun()
+
+                except json.JSONDecodeError as e:
+                    st.error("❌ Format JSON Error!")
+                    st.code(f"Error di baris {e.lineno}, kolom {e.colno}: {e.msg}")
+                except Exception as e:
+                    st.error(f"Gagal menyimpan: {e}")

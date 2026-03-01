@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Lumba-lumba punya “nama”",
+  "hook": "Hewan ini saling panggil nama!",
+  "cta": "Mau fakta hewan pintar lainnya?",
+  "query": "",
+  "bg": {
+    "query": "dolphins swimming realistic photo",
+    "variants": [
+      "dolphin pod",
+      "dolphin close up"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

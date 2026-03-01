@@ -1,0 +1,559 @@
+import os
+import html
+import time
+import random
+from pathlib import Path
+import streamlit as st
+from streamlit_autorefresh import st_autorefresh
+from core.content_cleaner import load_and_clean_txt
+
+from core.auto_manifest_builder import (
+    AutoStockSettings, 
+    build_manifest, 
+    ManifestBuildError,
+    extract_keyword_visual
+)
+from core.auto_render_manager import (
+    start_render_process,
+    stop_job,
+    tail_log,
+    parse_progress_percent,
+    parse_output_mp4,
+)
+
+
+TAB_KEY = "auto_stock_video"
+
+
+def _project_root() -> Path:
+    # assumes this file is at tabs/; project root is parent
+    return Path(__file__).resolve().parents[1]
+
+def _list_content_folders_and_files(base: Path) -> dict[str, list[str]]:
+    """
+    Return:
+      {
+        "faktaunik": ["contents/faktaunik/a.txt", "contents/faktaunik/b.txt", ...],
+        "automotif": ["contents/automotif/x.txt", ...],
+        ...
+      }
+    Only include folders that have at least 1 .txt
+    """
+    contents_dir = base / "contents"
+    out: dict[str, list[str]] = {}
+
+    if not contents_dir.exists():
+        return out
+
+    # ambil semua subfolder (urut nama folder)
+    for folder_path in sorted([p for p in contents_dir.iterdir() if p.is_dir()], key=lambda p: p.name.lower()):
+        files = sorted(folder_path.glob("*.txt"), key=lambda p: p.name.lower())
+        if not files:
+            continue
+
+        folder_name = folder_path.name
+        out[folder_name] = [str(Path("contents") / folder_name / f.name) for f in files]
+
+    return out
+
+
+def _list_content_files(base: Path) -> list[str]:
+    out = []
+    for folder in ["contents/faktaunik", "contents/automotif"]:
+        p = base / folder
+        if p.exists():
+            out += [str(Path(folder) / f.name) for f in sorted(p.glob("*.txt"))]
+    return out
+
+def _logbox_autoscroll(title: str, text: str, height_px: int = 320):
+    safe = html.escape(text or "")
+    st.components.v1.html(
+        f"""
+        <div style="font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+                    font-size: 12px;">
+          <div style="margin-bottom:6px; opacity:.85;">{html.escape(title)}</div>
+          <div id="logbox"
+               style="height:{int(height_px)}px; overflow:auto; white-space:pre-wrap;
+                      border:1px solid rgba(255,255,255,0.12); border-radius:10px;
+                      padding:10px; background:rgba(0,0,0,0.35);">
+{safe}
+          </div>
+        </div>
+
+        <script>
+          const el = document.getElementById("logbox");
+          if (el) {{
+            el.scrollTop = el.scrollHeight;
+          }}
+        </script>
+        """,
+        height=height_px + 60,
+    )
+
+
+def _read_text_safe(path: Path, max_chars: int = 6000) -> str:
+    try:
+        if not path.exists():
+            return f"[ERROR] File tidak ditemukan: {path}"
+        txt = path.read_text(encoding="utf-8", errors="ignore")
+        txt = txt.strip()
+        if len(txt) > max_chars:
+            return txt[:max_chars] + "\n\n...[TRUNCATED]..."
+        return txt
+    except Exception as e:
+        return f"[ERROR] Gagal baca file: {e}"
+
+def _pid_is_running(pid: int) -> bool:
+    """POSIX check: return True kalau PID masih hidup."""
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except Exception:
+        return False
+
+def render(ctx=None):
+    st.markdown("## 🎬 Auto Short Video Creator (Stock Video Mode)")
+    st.caption("Generate manifest otomatis dari content + stock video, lalu render via CLI (non-blocking).")
+
+    base = _project_root()
+    logs_dir = base / "logs"
+
+    if TAB_KEY not in st.session_state:
+        st.session_state[TAB_KEY] = {
+            "job": None,
+            "last_manifest": None,
+            "last_error": None,
+            "last_output": None,
+            "last_log_path": None,      # ✅ ADD
+            "log_expanded": False,
+            "ended_at": None,
+        }
+    state = st.session_state[TAB_KEY]
+
+    # ---- Content selector ----
+    st.markdown("### 1️⃣ Content Selector")
+
+    folders = _list_content_folders_and_files(base)
+    if not folders:
+        st.error("Tidak ada file .txt di subfolder contents/.")
+        return
+
+    # simpan pilihan folder terakhir
+    folder_names = list(folders.keys())
+    default_folder = st.session_state.get(f"{TAB_KEY}_folder", folder_names[0])
+    if default_folder not in folder_names:
+        default_folder = folder_names[0]
+
+    # pilih folder dulu
+    cL, cR = st.columns([1, 2])
+    with cL:
+        selected_folder = st.selectbox(
+            "Folder",
+            folder_names,
+            index=folder_names.index(default_folder),
+            key=f"{TAB_KEY}_folder",
+        )
+
+    # lalu dropdown file berdasarkan folder
+    files_in_folder = folders[selected_folder]
+    default_file = st.session_state.get(f"{TAB_KEY}_file", files_in_folder[0])
+    if default_file not in files_in_folder:
+        default_file = files_in_folder[0]
+
+    with cR:
+        content_file = st.selectbox(
+            "File (.txt)",
+            files_in_folder,
+            index=files_in_folder.index(default_file),
+            key=f"{TAB_KEY}_file",
+        )
+
+    content_abs = (base / content_file).resolve()
+
+    cc = load_and_clean_txt(content_abs)
+    content_clean = "\n".join(cc.lines)
+
+    with st.expander("📄 Preview Content (.txt)", expanded=False):
+        cc = load_and_clean_txt(content_abs)
+        content_clean = "\n".join(cc.lines)
+
+        st.text_area(
+            "Content Preview",
+            value="\n".join(cc.lines),
+            height=200,
+            label_visibility="collapsed",
+        )
+        if cc.meta:
+            st.caption("Meta terdeteksi (di-skip untuk TTS): " + ", ".join([f"{k}={v}" for k,v in cc.meta.items()]))
+
+    kw_key = f"{TAB_KEY}_kw_default"
+    kw_file_key = f"{TAB_KEY}_kw_file"
+
+    if st.session_state.get(kw_file_key) != content_file:
+        st.session_state[kw_file_key] = content_file
+        st.session_state[kw_key] = extract_keyword_visual(content_clean)
+
+    st.markdown("### 🔎 Keyword Override (opsional)")
+    kw_override = st.text_input("Paksa keyword stock (kosongkan untuk auto)", value=st.session_state.get(kw_key, ""),)
+
+    # ---- Stock source ----
+
+    st.markdown("### 2️⃣ Stock Source Selector")
+    stock_source = st.radio("Sumber stock video", ["Pexels", "Pixabay", "Both (random combine)"], horizontal=True)
+    source_map = {"Pexels": "pexels", "Pixabay": "pixabay", "Both (random combine)": "both"}
+
+    # ---- Video settings ----
+    st.markdown("### 3️⃣ Video Settings")
+    hook_text = st.session_state.get("Hook text (awal video)", "Tahukah kamu?")
+    cta_text = st.session_state.get("CTA text (akhir video)", "Follow untuk fakta menarik lainnya!")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        target_duration = st.number_input("Target duration (sec)", min_value=10, max_value=90, value=30, step=1)
+    with c2:
+        orientation = st.selectbox("Orientation", ["9:16", "16:9", "1:1"], index=0)
+    with c3:
+        clip_count = st.slider("Clip count (5–8)", min_value=5, max_value=8, value=7, step=1)
+    with c4:
+        seed_text = st.text_input("Random seed (optional)", value="")
+        random_seed = int(seed_text) if seed_text.strip().isdigit() else None
+
+    # ---- Text settings ----
+    st.markdown("### 4️⃣ Content Settings")
+    with st.expander("✍️ Text Settings", expanded=False):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            caption_style = st.selectbox("Caption style", ["Bold White", "Yellow Highlight", "Modern Subtitle"], index=2)
+        with c2:
+            caption_position = st.selectbox("Caption position", ["Center", "Bottom", "Dynamic"], index=1)
+        with c3:
+            font_size = st.slider("Font size", min_value=10, max_value=28, value=16, step=2)
+
+    # ---- TTS settings ----
+    with st.expander("🗣️ TTS Settings", expanded=False):
+        tts_enabled = st.toggle("Enable TTS", value=True)
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            tts_engine = st.selectbox(
+                "TTS engine",
+                ["gtts", "edge", "elevenlabs"],   # ✅ add
+                index=0,
+                disabled=not tts_enabled,
+            )
+
+        # default
+        voice = "id-ID-ArdiNeural"
+
+        with c2:
+            if tts_engine == "edge":
+                voice = st.selectbox(
+                    "Voice (edge-tts)",
+                    ["id-ID-ArdiNeural", "id-ID-GadisNeural", "en-US-GuyNeural", "en-US-JennyNeural"],
+                    index=0,
+                    disabled=not tts_enabled,
+                )
+            elif tts_engine == "elevenlabs":
+                # ✅ default value: ambil dari env kalau ada 2 id, kalau tidak pakai placeholder
+                v1 = (os.getenv("ELEVENLABS_VOICE_ID_1", "") or "").strip()
+                v2 = (os.getenv("ELEVENLABS_VOICE_ID_2", "") or "").strip()
+                v_def = ", ".join([x for x in [v1, v2] if x]) or "VOICE_ID_1,VOICE_ID_2"
+
+                pool_raw = st.text_input(
+                    "ElevenLabs voice_id pool (pisahkan dengan koma / newline)",
+                    value=st.session_state.get(f"{TAB_KEY}_eleven_pool", v_def),
+                    key=f"{TAB_KEY}_eleven_pool",
+                    disabled=not tts_enabled,
+                    help="Contoh: voiceidA, voiceidB (random akan pilih salah satu tiap render).",
+                )
+
+                pool = [x.strip() for x in pool_raw.replace("\n", ",").split(",") if x.strip()]
+                if not pool:
+                    st.warning("Isi minimal 1 voice_id untuk ElevenLabs (atau set env ELEVENLABS_VOICE_ID_1/_2).")
+                    voice = ""
+                else:
+                    # ✅ pilih random per render (kalau random_seed diisi -> deterministik)
+                    rng = random.Random(random_seed) if random_seed is not None else random.Random()
+                    chosen = rng.choice(pool)
+                    voice = chosen  # dipakai sebagai voice_id ke core.tts_engine
+                    st.caption(f"✅ ElevenLabs voice terpilih: `{chosen}`")
+
+        with c3:
+            speed = st.slider(
+                "Speed",
+                min_value=0.6, max_value=1.4,
+                value=1.0, step=0.05,
+                disabled=not tts_enabled,
+            )
+
+        if tts_engine == "elevenlabs":
+            st.caption("Butuh env: ELEVENLABS_API_KEY (wajib). Opsional: ELEVENLABS_MODEL_ID, ELEVENLABS_STABILITY, ELEVENLABS_SIMILARITY, ELEVENLABS_STYLE, ELEVENLABS_SPEAKER_BOOST.")
+
+    with st.expander("🎵 BGM (Background Music)", expanded=False):
+        bgm_enabled = st.toggle("Enable BGM", value=True)
+        bgm_volume = st.slider(
+            "BGM volume",
+            min_value=0.0, max_value=1.0,
+            value=0.20, step=0.05,
+            disabled=not bgm_enabled,
+        )
+
+    # ---- API key hints ----
+    with st.expander("🔐 API Keys (env vars)"):
+        st.code(
+            "PEXELS_API_KEY=YOUR_PEXELS_KEY\n"
+            "PIXABAY_API_KEY=YOUR_PIXABAY_KEY\n"
+            "ELEVENLABS_API_KEY=YOUR_ELEVENLABS_KEY\n"
+            "ELEVENLABS_VOICE_ID=YOUR_VOICE_ID\n"
+            "ELEVENLABS_VOICE_ID_1=VOICEID_A\n"
+            "ELEVENLABS_VOICE_ID_2=VOICEID_B\n"
+            "ELEVENLABS_MODEL_ID=eleven_multilingual_v2,  # optional",
+            language="bash",
+        )
+        st.caption("Tab ini akan fallback ke provider lain jika provider utama gagal/hasil kosong.")
+
+    # ---- Render options (watermark/handle/hook subtitle) ----
+    with st.expander("🧩 Render Options (Watermark / Handle / Hook Subtitle)", expanded=False):
+        cA, cB = st.columns([1, 1])
+
+        with cA:
+            handle = st.text_input(
+                "Channel handle (untuk watermark/CTA)",
+                value=st.session_state.get(f"{TAB_KEY}_handle", "@yourchannel"),
+                key=f"{TAB_KEY}_handle",
+                help="Akan dikirim sebagai --handle ke main.py (jika watermark aktif)."
+            )
+
+            hook_subtitle_opt = st.text_input(
+                "Hook subtitle (override)",
+                value=st.session_state.get(f"{TAB_KEY}_hook_sub", "FAKTA CEPAT"),
+                key=f"{TAB_KEY}_hook_sub",
+                help="Akan dikirim sebagai --hook-subtitle ke renderer."
+            )
+
+        with cB:
+            watermark_enabled = st.toggle(
+                "Watermark ON",
+                value=bool(st.session_state.get(f"{TAB_KEY}_wm_on", True)),
+                key=f"{TAB_KEY}_wm_on",
+                help="Jika OFF → sama dengan --no-watermark"
+            )
+
+            watermark_position = st.selectbox(
+                "Watermark position",
+                ["top-right", "top-left", "bottom-right", "bottom-left"],
+                index=["top-right", "top-left", "bottom-right", "bottom-left"].index(
+                    st.session_state.get(f"{TAB_KEY}_wm_pos", "top-right")
+                ),
+                key=f"{TAB_KEY}_wm_pos",
+            )
+            watermark_opacity = st.slider(
+                "Watermark opacity (0–255)",
+                min_value=0,
+                max_value=255,
+                value=int(st.session_state.get(f"{TAB_KEY}_wm_op", 120)),
+                step=5,
+                key=f"{TAB_KEY}_wm_op",
+                help="Semakin besar semakin terlihat. 120 biasanya pas."
+            )
+
+    # ---- Render controls ----
+    st.markdown("### 5️⃣ Render Controls")
+
+    job = state.get("job")
+    pid = int(job["pid"]) if job and job.get("pid") else 0
+    is_running = bool(pid and _pid_is_running(pid))
+
+    # ✅ kalau job ada tapi prosesnya sudah mati -> reset job biar tombol normal lagi
+    if job and pid and (not is_running):
+        state["job"] = None
+        state["ended_at"] = time.time()
+        state["log_expanded"] = False
+        # optional: keep last_log_path biar gampang debugging
+        state["last_log_path"] = job.get("log_path")
+
+    role = st.session_state.get("auth_role", "")
+    can_generate = (role == "admin")
+    if not can_generate:
+        st.info("Akun ini mode VIEWER: hanya bisa melihat & preview. Tombol Generate dinonaktifkan.")
+
+    btn1, btn2, btn3 = st.columns([1, 1, 2])
+    with btn1:
+        gen_clicked = st.button("🚀 Generate", type="primary", disabled=is_running or (not can_generate))
+    with btn2:
+        stop_clicked = st.button("🛑 Stop", disabled=(not is_running) or (not can_generate))
+
+    if gen_clicked and (not can_generate):
+        st.warning("Tidak punya izin untuk Generate.")
+        return
+
+    if gen_clicked:
+        state["last_error"] = None
+        state["last_output"] = None            # ✅ reset preview lama
+        state["log_expanded"] = True
+        state["ended_at"] = None 
+        try:
+            settings = AutoStockSettings(
+                content_file=content_file,
+                stock_source=source_map[stock_source],
+                target_duration=float(target_duration),
+                orientation=orientation,
+                random_seed=random_seed,
+                clip_count=int(clip_count),
+                hook_text=hook_text,
+                cta_text=cta_text,
+                caption_style=caption_style,          # type: ignore
+                caption_position=caption_position,    # type: ignore
+                font_size=int(font_size),
+                tts_enabled=bool(st.session_state.get(f"{TAB_KEY}_tts_on", True)),
+                tts_engine=str(st.session_state.get(f"{TAB_KEY}_tts_engine", "gtts")),
+                tts_voice=str(st.session_state.get(f"{TAB_KEY}_tts_voice", "id-ID-ArdiNeural")),
+                tts_speed=float(st.session_state.get(f"{TAB_KEY}_tts_speed", 1.0)),
+                keyword_override=kw_override.strip() or None,
+                handle=handle,
+                watermark_enabled=bool(watermark_enabled),
+                watermark_position=watermark_position,
+                hook_subtitle=hook_subtitle_opt,
+                watermark_opacity=int(watermark_opacity),
+                bgm_enabled=bool(bgm_enabled),
+                bgm_volume=float(bgm_volume),
+            )
+            manifest_path = build_manifest(settings=settings, base_dir=base)
+            state["last_manifest"] = str(manifest_path)
+
+            job_obj = start_render_process(project_root=base, manifest_path=manifest_path, logs_dir=logs_dir)
+            state["job"] = {
+                "pid": job_obj.pid,
+                "manifest_path": job_obj.manifest_path,
+                "log_path": job_obj.log_path,
+                "started_at": job_obj.started_at,
+            }
+            st.success(f"Render dimulai. PID: {job_obj.pid}")
+        except ManifestBuildError as e:
+            state["last_error"] = str(e)
+        except Exception as e:
+            state["last_error"] = f"Unexpected error: {e}"
+
+    if stop_clicked and job:
+        try:
+            stop_job(int(job["pid"]))
+            st.warning("Stop signal dikirim.")
+        except Exception as e:
+            st.error(f"Gagal stop job: {e}")
+        finally:
+            state["job"] = None
+
+    # ---- Status / PID / Progress / Logs ----
+    st.markdown("---")
+    st.markdown("### 📟 Status")
+
+    if state.get("last_error"):
+        st.error(state["last_error"])
+
+    if state.get("last_manifest"):
+        st.info(f"Manifest terakhir: `{state['last_manifest']}`")
+
+    job = state.get("job")
+
+    log_text = ""
+    log_path = None
+
+    job = state.get("job")
+    if job:
+        log_path = Path(job["log_path"])
+        log_text = tail_log(log_path, max_lines=260) if log_path.exists() else (
+            f"[INFO] Log file belum ada: {log_path}\n(Tunggu 1–2 detik, proses sedang membuat log.)"
+        )
+    else:
+        # kalau tidak ada job, tapi kita pernah simpan last_log_path
+        lp = state.get("last_log_path")
+        if lp:
+            log_path = Path(lp)
+            if log_path.exists():
+                log_text = tail_log(log_path, max_lines=260)
+            else:
+                log_text = "[INFO] Tidak ada proses berjalan."
+        else:
+            log_text = "[INFO] Tidak ada proses berjalan."
+
+    progress = 0
+
+    if job:
+        pid = int(job["pid"])
+        st.write(f"**PID:** `{pid}`")
+        log_path = Path(job["log_path"])
+        log_text = tail_log(log_path, max_lines=260)
+        progress = parse_progress_percent(log_text)
+
+        st.progress(progress, text=f"Progress: {progress}%")
+        elapsed = time.time() - float(job.get("started_at") or time.time())
+        st.caption(f"Elapsed: {elapsed:.1f}s | Log: `{log_path}`")
+
+        started_at = None
+        if job:
+            started_at = float(job.get("started_at") or 0.0)
+
+        if started_at:
+            st.caption(f"Start proses: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(started_at))}")
+
+        if progress > 2:
+            total_est = elapsed / (progress / 100.0)
+            remain = max(0.0, total_est - elapsed)
+            st.caption(f"Estimasi sisa waktu: ~{remain:.1f}s (heuristic)")
+
+        ended_at = state.get("ended_at")
+        if ended_at:
+            st.caption(f"End proses: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(float(ended_at)))}")
+
+    # ✅ parse output mp4 dari log (baik running maupun sudah selesai)
+    out_mp4 = parse_output_mp4(log_text) if log_text else None
+    if out_mp4:
+        state["last_output"] = out_mp4
+        state["log_expanded"] = False   # ✅ selesai → tutup expander
+        state["ended_at"] = time.time()
+        # optional: auto-clear job supaya tombol Generate aktif lagi
+        if state.get("job"):
+            state["job"] = None
+
+    # ✅ tampilkan preview kalau sudah ada last_output
+    last_out = state.get("last_output")
+    if last_out and os.path.exists(last_out):
+        st.success("✅ Render selesai. Preview video:")
+
+        c_prev, c_side = st.columns([1, 1])   # 50% : 50%
+        with c_prev:
+            st.video(last_out)
+
+        with c_side:
+            st.caption("📌 Output")
+            st.code(last_out)
+            try:
+                with open(last_out, "rb") as f:
+                    st.download_button(
+                        "⬇️ Download MP4",
+                        data=f,
+                        file_name=os.path.basename(last_out),
+                        mime="video/mp4",
+                        use_container_width=True,
+                    )
+            except Exception as e:
+                st.caption(f"(Download gagal: {e})")
+
+    # ✅ Logbox dalam expander (auto open/close)
+    with st.expander("🧾 Realtime Logbox", expanded=bool(state.get("log_expanded"))):
+        _logbox_autoscroll("Log", log_text, height_px=320)
+        if log_path:
+            st.caption(f"Log path: `{log_path}`")
+
+    # ✅ auto-refresh hanya saat job masih ada
+    if state.get("job"):
+        st_autorefresh(interval=1400, key="auto_stock_refresh")
+    else:
+        st.caption("Tidak ada proses render yang berjalan.")
+
+
+# Streamlit expects each tab module to expose a render entry point (common modular pattern)
+#render()

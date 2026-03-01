@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Cek lampu-lampu sebelum perjalanan",
+  "hook": "Lampu mati itu undangan kecelakaan!",
+  "cta": "Lampu rem kamu sudah dicek?",
+  "query": "",
+  "bg": {
+    "query": "car lights inspection brake light turn signal realistic photo",
+    "variants": [
+      "car brake light check",
+      "turn signal light check"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

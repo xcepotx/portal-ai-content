@@ -1,0 +1,56 @@
+# ytshorts/watermark.py
+import os
+from PIL import Image, ImageDraw, ImageFont
+
+WATERMARK_TEXT = "@NgelucuShop"   # <-- UBAH DI SINI SAJA
+WATERMARK_OPACITY = 120
+WATERMARK_FONT_SIZE = 30
+
+def _font(size: int):
+    try:
+        return ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size)
+    except Exception:
+        try:
+            return ImageFont.truetype("DejaVuSans.ttf", size)
+        except Exception:
+            return ImageFont.load_default()
+
+
+def _stroke_text(draw, pos, text, font, fill, stroke=3, stroke_fill=(0, 0, 0, 160)):
+    x, y = pos
+    for dx in range(-stroke, stroke + 1):
+        for dy in range(-stroke, stroke + 1):
+            if dx == 0 and dy == 0:
+                continue
+            draw.text((x + dx, y + dy), text, font=font, fill=stroke_fill)
+    draw.text((x, y), text, font=font, fill=fill)
+
+
+def render_watermark(out_path: str, w: int = 720, h: int = 1280,
+                     text: str = None, opacity: int = None):
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+
+    if text is None:
+        text = WATERMARK_TEXT
+    if opacity is None:
+        opacity = WATERMARK_OPACITY
+
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    font = _font(WATERMARK_FONT_SIZE)
+
+    margin_x = 26
+    margin_y = 20  # kanan atas
+
+    d.text(
+        (w - margin_x, margin_y),
+        text,
+        font=font,
+        fill=(255, 255, 255, int(opacity)),
+        anchor="ra",
+        stroke_fill=(0, 0, 0, int(opacity * 0.9)),
+        stroke_width=3,
+    )
+
+    img.save(out_path)
+    return out_path

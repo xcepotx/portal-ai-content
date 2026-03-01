@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Koala punya sidik jari mirip manusia",
+  "hook": "Sidik jari koala bisa bikin bingung!",
+  "cta": "Kalau ketemu koala, mau foto gak?",
+  "query": "",
+  "bg": {
+    "query": "koala close up realistic photo",
+    "variants": [
+      "koala hands close up",
+      "koala portrait natural"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

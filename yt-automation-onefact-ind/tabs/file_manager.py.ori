@@ -1,0 +1,466 @@
+from __future__ import annotations
+
+import os
+import time
+import subprocess
+from pathlib import Path
+import streamlit as st
+
+
+# =========================
+# Helpers
+# =========================
+def _coerce_path(v) -> Path | None:
+    if v is None:
+        return None
+    if isinstance(v, Path):
+        return v.expanduser().resolve()
+    if isinstance(v, str):
+        s = v.strip()
+        if not s:
+            return None
+        return Path(s).expanduser().resolve()
+    try:
+        s = str(v).strip()
+        if not s:
+            return None
+        return Path(s).expanduser().resolve()
+    except Exception:
+        return None
+
+
+def _legacy_root() -> Path:
+    # yt-automation-onefact-ind/
+    return Path(__file__).resolve().parents[1]
+
+
+def _ws_root_from_ctx(ctx) -> Path | None:
+    if not isinstance(ctx, dict):
+        return None
+    paths = ctx.get("paths") or {}
+    return _coerce_path(paths.get("user_root"))
+
+
+def _role_from_ctx(ctx) -> str:
+    if isinstance(ctx, dict):
+        r = (ctx.get("auth_role") or "").strip()
+        if r:
+            return r
+    return (st.session_state.get("auth_role") or "").strip()
+
+
+def _can_write(role: str) -> bool:
+    # sesuaikan policy kamu di portal
+    return role in ("admin", "user")
+
+
+def _ensure_dir(p: Path) -> None:
+    p.mkdir(parents=True, exist_ok=True)
+
+
+def _safe_in_root(file_path: Path, root: Path) -> bool:
+    try:
+        rp = file_path.resolve()
+        rr = root.resolve()
+        return str(rp).startswith(str(rr) + os.sep) or rp == rr
+    except Exception:
+        return False
+
+
+def _list_topics_from_out(out_root: Path) -> list[str]:
+    if not out_root.exists():
+        return []
+    topics = [p.name for p in out_root.iterdir() if p.is_dir()]
+    topics.sort(key=lambda x: x.lower())
+    return topics
+
+
+def _list_topics_from_contents(contents_root: Path) -> list[str]:
+    if not contents_root.exists():
+        return []
+    topics = []
+    for p in contents_root.iterdir():
+        if p.is_dir():
+            if p.name.lower() == "generated":
+                continue
+            topics.append(p.name)
+    topics.sort(key=lambda x: x.lower())
+    return topics
+
+
+def _clean_temp_mp4(root: Path) -> int:
+    """
+    Hapus file sampah TEMP_MPY / .tmp_ di root yang dipilih (dan subfolder out/*).
+    Aman: hanya di dalam root.
+    """
+    patterns = [
+        "TEMP_MPY",
+        ".tmp_",
+        "_TEMP_MPY",
+    ]
+    count = 0
+    # hanya scan yang relevan: root dan out/**
+    candidates = []
+    candidates += list(root.glob("*.mp4"))
+    out_root = root / "out"
+    if out_root.exists():
+        candidates += list(out_root.rglob("*.mp4"))
+
+    for f in candidates:
+        name = f.name
+        if not any(pat in name for pat in patterns):
+            continue
+        if not _safe_in_root(f, root):
+            continue
+        try:
+            f.unlink(missing_ok=True)
+            count += 1
+        except Exception:
+            pass
+    return count
+
+
+def _ffmpeg_fix_playback(mp4_path: Path) -> tuple[bool, str]:
+    """
+    Re-encode video to H.264 + yuv420p for browser compatibility.
+    Audio copied.
+    """
+    tmp = mp4_path.with_name(mp4_path.stem + "_fixed.mp4")
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", str(mp4_path),
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        "-c:a", "copy",
+        str(tmp),
+    ]
+    try:
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+        if tmp.exists() and tmp.stat().st_size > 0:
+            tmp.replace(mp4_path)
+            return True, "✅ Video berhasil diperbaiki (browser-friendly)."
+        return False, "❌ Gagal convert video (tmp tidak terbentuk)."
+    except Exception as e:
+        return False, f"❌ Error ffmpeg: {e}"
+
+
+# =========================
+# UI render
+# =========================
+def render(ctx):
+    role = _role_from_ctx(ctx)
+    writable = _can_write(role)
+
+    legacy = _legacy_root()
+    ws = _ws_root_from_ctx(ctx)
+
+    st.subheader("📁 File Manager")
+
+    # --- pilih root data ---
+    root_choice = "Workspace (user_data)"
+    choices = [root_choice, "Legacy Repo (yt-automation)"]
+    if ws is None:
+        root_choice = "Legacy Repo (yt-automation)"
+    selected_root_kind = st.radio("Data source", choices, horizontal=True)
+
+    if selected_root_kind == "Workspace (user_data)" and ws is not None:
+        base_root = ws
+    else:
+        base_root = legacy
+
+    _ensure_dir(base_root)
+
+    c_head, c_btn, c_clean = st.columns([5, 1, 1])
+    with c_btn:
+        if st.button("🔄 Refresh", key="fm_refresh", help="Muat ulang daftar file"):
+            st.rerun()
+    with c_clean:
+        if st.button("🧹 Clean temp", key="fm_clean", disabled=not writable, help="Hapus TEMP_MPY/.tmp_ mp4"):
+            n = _clean_temp_mp4(base_root)
+            st.toast(f"Cleaned {n} temp mp4", icon="🗑️" if n else "✨")
+            time.sleep(0.6)
+            st.rerun()
+
+    if not writable:
+        st.info("Mode VIEWER/DEMO: hanya bisa lihat & download. Delete/Fix dinonaktifkan.")
+
+    st.caption(f"Root aktif: `{base_root}`")
+
+    # --- pilih area ---
+    area = st.selectbox(
+        "Pilih Area",
+        ["Out Videos", "Contents (TXT)", "Manifests (JSON)", "Logs", "Generated Assets"],
+        index=0,
+        key="fm_area",
+    )
+
+    # =========================
+    # OUT VIDEOS
+    # =========================
+    if area == "Out Videos":
+        out_root = base_root / "out"
+        topics = _list_topics_from_out(out_root)
+
+        if not topics:
+            st.warning(f"Tidak ada folder topic di `{out_root}`")
+            return
+
+        topic = st.selectbox("Topic", topics, key="fm_out_topic")
+        topic_dir = out_root / topic
+
+        files = sorted(topic_dir.glob("*.mp4"), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
+
+        if not files:
+            st.info("📂 Folder kosong.")
+            return
+
+        st.caption(f"Ditemukan {len(files)} video di `{topic_dir}`")
+        st.divider()
+
+        for f in files:
+            k = f"{topic}_{f.name}"
+
+            c1, c2, c3, c4, c5 = st.columns([3, 0.9, 0.9, 1.2, 0.9])
+            c1.write(f"🎞️ **{f.name}**")
+
+            with c2:
+                prev = st.button("▶️", key=f"fm_prev_{k}", help="Preview Video")
+            with c3:
+                try:
+                    with open(f, "rb") as dl:
+                        st.download_button("⬇️", dl, file_name=f.name, key=f"fm_dl_{k}", help="Download Video")
+                except Exception as e:
+                    st.caption(f"download error: {e}")
+
+            with c4:
+                if st.button("🔧 Fix Play", key=f"fm_fix_{k}", disabled=not writable, help="Fix freeze playback"):
+                    with st.spinner("Memperbaiki format video..."):
+                        ok, msg = _ffmpeg_fix_playback(f)
+                    (st.success if ok else st.error)(msg)
+                    time.sleep(0.6)
+                    st.rerun()
+
+            with c5:
+                if st.button("🗑️", key=f"fm_del_{k}", disabled=not writable, help="Hapus Video"):
+                    try:
+                        if _safe_in_root(f, base_root):
+                            f.unlink(missing_ok=True)
+                            st.toast("Video dihapus!", icon="🗑️")
+                            time.sleep(0.6)
+                            st.rerun()
+                        else:
+                            st.error("Refuse delete: file di luar root.")
+                    except Exception as e:
+                        st.error(f"Gagal hapus: {e}")
+
+            if prev:
+                st.video(str(f))
+
+            st.divider()
+
+    # =========================
+    # CONTENTS TXT
+    # =========================
+    elif area == "Contents (TXT)":
+        contents_root = base_root / "contents"
+        topics = _list_topics_from_contents(contents_root)
+
+        if not topics:
+            st.warning(f"Tidak ada folder topic di `{contents_root}`")
+            return
+
+        topic = st.selectbox("Topic", topics, key="fm_txt_topic")
+        topic_dir = contents_root / topic
+
+        files = sorted(topic_dir.glob("*.txt"), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
+
+        if not files:
+            st.info("📂 Folder kosong.")
+            return
+
+        st.caption(f"Ditemukan {len(files)} file txt di `{topic_dir}`")
+        st.divider()
+
+        for f in files:
+            k = f"{topic}_{f.name}"
+            c1, c2, c3, c4 = st.columns([3, 0.9, 0.9, 0.9])
+
+            c1.write(f"📄 **{f.name}**")
+
+            with c2:
+                view = st.button("👁️", key=f"fm_view_{k}", help="Preview Text")
+            with c3:
+                try:
+                    with open(f, "rb") as dl:
+                        st.download_button("⬇️", dl, file_name=f.name, key=f"fm_dl_txt_{k}", help="Download TXT")
+                except Exception as e:
+                    st.caption(f"download error: {e}")
+
+            with c4:
+                if st.button("🗑️", key=f"fm_del_txt_{k}", disabled=not writable, help="Hapus TXT"):
+                    try:
+                        if _safe_in_root(f, base_root):
+                            f.unlink(missing_ok=True)
+                            st.toast("TXT dihapus!", icon="🗑️")
+                            time.sleep(0.6)
+                            st.rerun()
+                        else:
+                            st.error("Refuse delete: file di luar root.")
+                    except Exception as e:
+                        st.error(f"Gagal hapus: {e}")
+
+            if view:
+                try:
+                    txt = f.read_text(encoding="utf-8", errors="ignore")
+                except Exception as e:
+                    txt = f"[ERROR baca file] {e}"
+                st.text_area("Preview", txt, height=220, key=f"fm_txt_preview_{k}")
+
+            st.divider()
+
+    # =========================
+    # MANIFESTS
+    # =========================
+    elif area == "Manifests (JSON)":
+        mdir = base_root / "manifests"
+        if not mdir.exists():
+            st.warning(f"Folder belum ada: `{mdir}`")
+            return
+
+        files = sorted(mdir.glob("*.json"), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
+        if not files:
+            st.info("📂 Folder kosong.")
+            return
+
+        pick = st.selectbox("Manifest", [f.name for f in files], key="fm_manifest_pick")
+        f = mdir / pick
+
+        c1, c2, c3 = st.columns([1, 1, 2])
+        with c1:
+            try:
+                with open(f, "rb") as dl:
+                    st.download_button("⬇️ Download", dl, file_name=f.name, key="fm_manifest_dl")
+            except Exception as e:
+                st.caption(f"download error: {e}")
+        with c2:
+            if st.button("🗑️ Delete", disabled=not writable, key="fm_manifest_del"):
+                try:
+                    if _safe_in_root(f, base_root):
+                        f.unlink(missing_ok=True)
+                        st.toast("Manifest dihapus!", icon="🗑️")
+                        time.sleep(0.6)
+                        st.rerun()
+                    else:
+                        st.error("Refuse delete: file di luar root.")
+                except Exception as e:
+                    st.error(f"Gagal hapus: {e}")
+
+        try:
+            import json
+            data = json.loads(f.read_text(encoding="utf-8"))
+            st.json(data)
+        except Exception as e:
+            st.error(f"Gagal parse JSON: {e}")
+            st.code(f.read_text(encoding='utf-8', errors='ignore')[:8000], language="json")
+
+    # =========================
+    # LOGS
+    # =========================
+    elif area == "Logs":
+        ldir = base_root / "logs"
+        if not ldir.exists():
+            st.warning(f"Folder belum ada: `{ldir}`")
+            return
+
+        files = sorted(ldir.glob("*.log"), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
+        if not files:
+            st.info("📂 Folder kosong.")
+            return
+
+        pick = st.selectbox("Log file", [f.name for f in files], key="fm_log_pick")
+        f = ldir / pick
+
+        c1, c2, c3 = st.columns([1, 1, 2])
+        with c1:
+            try:
+                with open(f, "rb") as dl:
+                    st.download_button("⬇️ Download", dl, file_name=f.name, key="fm_log_dl")
+            except Exception as e:
+                st.caption(f"download error: {e}")
+        with c2:
+            if st.button("🗑️ Delete", disabled=not writable, key="fm_log_del"):
+                try:
+                    if _safe_in_root(f, base_root):
+                        f.unlink(missing_ok=True)
+                        st.toast("Log dihapus!", icon="🗑️")
+                        time.sleep(0.6)
+                        st.rerun()
+                    else:
+                        st.error("Refuse delete: file di luar root.")
+                except Exception as e:
+                    st.error(f"Gagal hapus: {e}")
+
+        try:
+            txt = f.read_text(encoding="utf-8", errors="ignore")
+            tail = "\n".join(txt.splitlines()[-300:])
+            st.code(tail, language="text")
+        except Exception as e:
+            st.error(f"Gagal baca log: {e}")
+
+    # =========================
+    # GENERATED ASSETS
+    # =========================
+    else:
+        gen_root = base_root / "contents" / "generated"
+        if not gen_root.exists():
+            st.warning(f"Folder belum ada: `{gen_root}`")
+            return
+
+        # list top folders under generated
+        folders = [p for p in gen_root.iterdir() if p.is_dir()]
+        folders.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
+
+        if not folders:
+            st.info("📂 Folder kosong.")
+            return
+
+        pick = st.selectbox("Folder", [p.name for p in folders], key="fm_gen_pick")
+        folder = gen_root / pick
+
+        st.caption(f"📦 `{folder}`")
+
+        # show files recursive (limited)
+        all_files = [p for p in folder.rglob("*") if p.is_file()]
+        all_files.sort(key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
+
+        if not all_files:
+            st.info("Tidak ada file di folder ini.")
+            return
+
+        limit = st.slider("Max files", 10, 200, 60, step=10, key="fm_gen_limit")
+        show = all_files[:limit]
+
+        for f in show:
+            rel = f.relative_to(gen_root)
+            k = f"fm_gen_{str(rel).replace('/', '_')}"
+            c1, c2, c3 = st.columns([4, 1, 1])
+            c1.write(f"`{rel}`")
+            with c2:
+                try:
+                    with open(f, "rb") as dl:
+                        st.download_button("⬇️", dl, file_name=f.name, key=f"{k}_dl")
+                except Exception:
+                    pass
+            with c3:
+                if st.button("🗑️", key=f"{k}_del", disabled=not writable):
+                    try:
+                        if _safe_in_root(f, base_root):
+                            f.unlink(missing_ok=True)
+                            st.toast("Deleted.", icon="🗑️")
+                            time.sleep(0.4)
+                            st.rerun()
+                        else:
+                            st.error("Refuse delete: file di luar root.")
+                    except Exception as e:
+                        st.error(f"Gagal: {e}")

@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Cek ketebalan kampas rem",
+  "hook": "Rem bunyi itu tanda bahaya!",
+  "cta": "Kampas rem kamu masih tebal?",
+  "query": "",
+  "bg": {
+    "query": "car brake pads inspection close up realistic photo",
+    "variants": [
+      "brake pad wear",
+      "brake caliper inspection"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

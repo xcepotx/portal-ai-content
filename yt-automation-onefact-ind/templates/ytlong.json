@@ -1,0 +1,18 @@
+{
+  "title": "Misteri Zona Hadal: Kedalaman Ekstrem",
+  "hook": "Tahukah kamu, ada bagian laut yang lebih dalam dari ketinggian Gunung Everest?",
+  "cta": "Kalau fakta ini bikin kamu merinding, tulis di komentar.",
+  "video_project": {
+    "judul": "Misteri Zona Hadal: Kedalaman Ekstrem",
+    "target_durasi": "00:45",
+    "kategori": "Edukasi / Fakta Unik",
+    "tone": "Misterius & Menegangkan"
+  },
+  "content_flow": [
+    {
+      "segmen": "Fakta: Kedalaman Ekstrem",
+      "narasi": "Zona Hadal berada di kedalaman lebih dari enam ribu meter di bawah permukaan laut. Ini adalah wilayah terdalam di samudra Bumi, tempat tekanan air begitu besar hingga hampir mustahil bagi manusia untuk bertahan hidup."
+    }
+  ],
+  "keywords": ["fakta unik", "zona hadal", "laut dalam", "sains", "edukasi"]
+}

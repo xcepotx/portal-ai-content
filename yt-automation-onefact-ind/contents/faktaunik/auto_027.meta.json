@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Air laut lebih asin karena… sungai",
+  "hook": "Sungai bikin laut asin?",
+  "cta": "Mau fakta sains simpel lainnya?",
+  "query": "",
+  "bg": {
+    "query": "ocean waves shoreline realistic photo",
+    "variants": [
+      "sea salt water",
+      "ocean surface close up"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

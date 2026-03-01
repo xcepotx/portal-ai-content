@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Gunakan oli sesuai spesifikasi",
+  "hook": "Oli bukan cuma soal merek!",
+  "cta": "Oli mobil kamu sudah sesuai spek?",
+  "query": "",
+  "bg": {
+    "query": "engine oil bottles viscosity label realistic photo",
+    "variants": [
+      "5w30 engine oil",
+      "engine oil viscosity label"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

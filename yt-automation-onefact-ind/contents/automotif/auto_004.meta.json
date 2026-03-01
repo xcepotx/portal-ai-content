@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Cek filter udara mesin",
+  "hook": "Tarikan berat bisa dari filter udara!",
+  "cta": "Filter udara kamu terakhir dicek kapan?",
+  "query": "",
+  "bg": {
+    "query": "dirty car engine air filter realistic photo",
+    "variants": [
+      "engine air filter inspection",
+      "clogged air filter close up"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

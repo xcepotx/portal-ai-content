@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Ada jamur yang menyala di gelap",
+  "hook": "Jamur kok bisa glow?",
+  "cta": "Kalau lihat ini malam-malam, takut gak?",
+  "query": "",
+  "bg": {
+    "query": "bioluminescent mushroom forest night realistic photo",
+    "variants": [
+      "glowing mushrooms",
+      "luminescent fungi"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

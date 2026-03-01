@@ -1,0 +1,126 @@
+{
+  "title": "Fakta Otomotif",
+  "seconds": 30,
+  "facts": [
+    {
+      "title": "Coolant bukan sekadar air radiator",
+      "hook": "Banyak orang masih salah paham soal cairan radiator.",
+      "fact": "Coolant membantu menjaga suhu mesin stabil sekaligus melindungi sistem pendingin dari karat.",
+      "lines": [
+        "Air biasa bisa memicu karat dan endapan di dalam radiator.",
+        "Coolant juga menaikkan titik didih sehingga mesin lebih aman.",
+        "Gunakan coolant sesuai spesifikasi pabrikan."
+      ],
+      "cta": "Pernah cek coolant mobil kamu?",
+      "query": "engine coolant radiator system"
+    },
+    {
+      "title": "Brake fluid menyerap air dari udara",
+      "hook": "Cairan rem ini sering diabaikan, padahal penting.",
+      "fact": "Brake fluid bersifat higroskopis, artinya bisa menyerap uap air dari udara.",
+      "lines": [
+        "Air di dalam brake fluid menurunkan titik didih.",
+        "Rem bisa terasa ‘ngempos’ saat panas.",
+        "Itulah alasan brake fluid perlu diganti berkala."
+      ],
+      "cta": "Kapan terakhir ganti minyak rem?",
+      "query": "brake fluid hygroscopic boiling point"
+    },
+    {
+      "title": "Thermostat mengatur suhu mesin",
+      "hook": "Mesin panas atau terlalu dingin sama-sama bermasalah.",
+      "fact": "Thermostat bertugas membuka dan menutup aliran coolant sesuai suhu mesin.",
+      "lines": [
+        "Kalau macet tertutup, mesin bisa overheat.",
+        "Kalau macet terbuka, mesin lama mencapai suhu kerja.",
+        "Efeknya bisa ke konsumsi dan performa."
+      ],
+      "cta": "Gejala suhu mesin aneh jangan disepelekan.",
+      "query": "engine thermostat function"
+    },
+    {
+      "title": "Alternator lemah bikin error aneh",
+      "hook": "Bukan cuma aki yang bikin masalah listrik.",
+      "fact": "Alternator yang lemah bisa membuat tegangan tidak stabil ke sistem mobil.",
+      "lines": [
+        "Gejalanya bisa lampu redup atau indikator muncul acak.",
+        "Head unit bisa restart sendiri.",
+        "Masalahnya sering disangka sensor, padahal kelistrikan."
+      ],
+      "cta": "Pernah ngalamin gejala ini?",
+      "query": "car alternator charging problem"
+    },
+    {
+      "title": "Filter udara kotor bikin mesin berat",
+      "hook": "Tenaga mesin bisa turun tanpa disadari.",
+      "fact": "Filter udara kotor menghambat aliran udara ke ruang bakar.",
+      "lines": [
+        "Pembakaran jadi kurang optimal.",
+        "Respons gas terasa lebih berat.",
+        "Solusinya simpel: bersihkan atau ganti filter."
+      ],
+      "cta": "Filter udara sering kamu cek?",
+      "query": "dirty air filter engine performance"
+    },
+    {
+      "title": "MAF sensor mempengaruhi konsumsi",
+      "hook": "Sensor kecil ini pengaruhnya besar.",
+      "fact": "MAF sensor mengukur udara masuk untuk menentukan jumlah bahan bakar.",
+      "lines": [
+        "Sensor kotor bikin campuran tidak akurat.",
+        "Bisa boros atau mesin terasa ngempos.",
+        "Pembersihan ringan kadang sudah cukup."
+      ],
+      "cta": "MAF sensor jarang diperhatikan, padahal penting.",
+      "query": "mass air flow sensor cleaning"
+    },
+    {
+      "title": "PCV valve mempengaruhi idle",
+      "hook": "Idle tidak stabil belum tentu injector.",
+      "fact": "PCV valve mengatur uap gas dari ruang mesin kembali ke intake.",
+      "lines": [
+        "Kalau macet, idle bisa naik turun.",
+        "Tekanan di mesin juga bisa meningkat.",
+        "Komponen kecil tapi fungsinya besar."
+      ],
+      "cta": "Masalah idle bisa datang dari hal sepele.",
+      "query": "PCV valve engine idle"
+    },
+    {
+      "title": "ATF panas mempercepat kerusakan transmisi",
+      "hook": "Transmisi otomatis sensitif panas.",
+      "fact": "Oli transmisi otomatis bekerja optimal di suhu tertentu.",
+      "lines": [
+        "Panas berlebih bikin pelumasan menurun.",
+        "Perpindahan gigi jadi kasar.",
+        "Pendinginan dan perawatan ATF itu krusial."
+      ],
+      "cta": "ATF jarang dicek, tapi mahal akibatnya.",
+      "query": "automatic transmission fluid overheating"
+    },
+    {
+      "title": "Roof rack bikin mobil lebih boros",
+      "hook": "Aksesori ini kelihatan sepele.",
+      "fact": "Roof rack meningkatkan hambatan udara saat mobil melaju.",
+      "lines": [
+        "Drag naik terutama di kecepatan tinggi.",
+        "Mesin perlu tenaga lebih besar.",
+        "Copot kalau tidak dipakai harian."
+      ],
+      "cta": "Aksesori juga bisa pengaruh konsumsi.",
+      "query": "car roof rack aerodynamic drag"
+    },
+    {
+      "title": "Grounding buruk bikin sensor error",
+      "hook": "Masalah listrik tidak selalu komponen mahal.",
+      "fact": "Grounding yang buruk bisa mengganggu pembacaan sensor.",
+      "lines": [
+        "Tegangan jadi tidak stabil.",
+        "Error muncul tapi sulit dilacak.",
+        "Cek kabel ground sering jadi solusi murah."
+      ],
+      "cta": "Kelistrikan dasar sering diremehkan.",
+      "query": "car electrical grounding issue"
+    }
+  ]
+}

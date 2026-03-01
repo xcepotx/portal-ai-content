@@ -1,0 +1,21 @@
+{
+  "topic": "faktaunik",
+  "seconds": 30,
+  "title": "Fakta Unik Dunia",
+  "fact_title": "Ada air terjun bawah laut",
+  "hook": "Air terjun… di bawah laut?!",
+  "cta": "Kamu baru tahu ini?",
+  "query": "",
+  "bg": {
+    "query": "underwater waterfall illusion realistic photo",
+    "variants": [
+      "ocean current underwater",
+      "underwater cliff sandfall"
+    ],
+    "avoid": [
+      "portrait",
+      "orang",
+      "selfie"
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "topic": "automotif",
+  "seconds": 30,
+  "title": "Tips Otomotif",
+  "fact_title": "Flush coolant sesuai jadwal",
+  "hook": "Coolant bukan isi sekali buat selamanya!",
+  "cta": "Coolant kamu terakhir diganti kapan?",
+  "query": "",
+  "bg": {
+    "query": "car coolant flush service realistic photo",
+    "variants": [
+      "radiator coolant drain",
+      "coolant replacement"
+    ],
+    "avoid": [
+      "portrait",
+      "person",
+      "selfie"
+    ]
+  }
+}

@@ -1,0 +1,205 @@
+{
+  "title": "Fakta Otomotif",
+  "seconds": 30,
+  "facts": [
+    {
+      "title": "Coolant bukan sekadar air radiator",
+      "hook": "Banyak orang masih salah paham soal cairan radiator.",
+      "fact": "Coolant menjaga suhu mesin stabil sekaligus melindungi sistem pendingin dari karat dan korosi.",
+      "lines": [
+        "Air biasa bisa memicu karat dan endapan di dalam radiator.",
+        "Coolant menaikkan titik didih sehingga mesin lebih aman.",
+        "Gunakan coolant sesuai spesifikasi pabrikan."
+      ],
+      "cta": "Pernah cek coolant mobil kamu?",
+      "bg": {
+        "query": "car radiator coolant reservoir close up realistic photo",
+        "variants": [
+          "coolent radiator",
+          "coolent engine"
+        ],
+        "avoid": ["portrait", "person", "selfie"]
+      }
+    },
+
+    {
+      "title": "Brake fluid menyerap air dari udara",
+      "hook": "Cairan rem ini sering diabaikan, padahal krusial.",
+      "fact": "Brake fluid bersifat higroskopis, artinya menyerap uap air dari udara.",
+      "lines": [
+        "Air menurunkan titik didih brake fluid.",
+        "Rem bisa terasa ngempos saat panas.",
+        "Itulah sebabnya minyak rem perlu diganti berkala."
+      ],
+      "cta": "Kapan terakhir ganti minyak rem?",
+      "bg": {
+        "query": "car brake fluid reservoir engine bay",
+        "variants": [
+          "brake fuild",
+          "car braking"
+        ],
+        "avoid": ["portrait", "mechanic face"]
+      }
+    },
+
+    {
+      "title": "Thermostat mengatur suhu kerja mesin",
+      "hook": "Mesin terlalu dingin atau panas sama-sama bermasalah.",
+      "fact": "Thermostat membuka dan menutup aliran coolant sesuai suhu mesin.",
+      "lines": [
+        "Macet tertutup bisa menyebabkan overheat.",
+        "Macet terbuka bikin mesin lama mencapai suhu kerja.",
+        "Efeknya ke konsumsi dan emisi."
+      ],
+      "cta": "Suhu mesin aneh jangan disepelekan.",
+      "bg": {
+        "query": "engine thermostat car cooling system",
+        "variants": [
+          "engine cooling",
+          "thermostat engine"
+        ],
+        "avoid": ["portrait", "illustration cartoon"]
+      }
+    },
+
+    {
+      "title": "Alternator lemah bikin error elektronik",
+      "hook": "Masalah listrik mobil tidak selalu dari aki.",
+      "fact": "Alternator yang lemah membuat suplai listrik ke sistem mobil tidak stabil.",
+      "lines": [
+        "Lampu bisa redup atau naik turun.",
+        "Head unit bisa restart sendiri.",
+        "Sering disangka sensor padahal sumbernya alternator."
+      ],
+      "cta": "Pernah ngalamin gejala ini?",
+      "bg": {
+        "query": "car alternator engine bay close up",
+        "variants": [
+          "alternator engine",
+          "car charging"
+        ],
+        "avoid": ["portrait", "selfie"]
+      }
+    },
+
+    {
+      "title": "MAF sensor mempengaruhi konsumsi BBM",
+      "hook": "Sensor kecil ini pengaruhnya besar.",
+      "fact": "MAF sensor mengukur udara masuk untuk menentukan jumlah bahan bakar.",
+      "lines": [
+        "Sensor kotor bikin campuran tidak akurat.",
+        "Bisa boros atau mesin terasa ngempos.",
+        "Pembersihan ringan kadang sudah cukup."
+      ],
+      "cta": "MAF sensor jarang diperhatikan.",
+      "bg": {
+        "query": "mass air flow sensor car intake",
+        "variants": [
+          "air intake",
+          "engine system"
+        ],
+        "avoid": ["portrait", "diagram cartoon"]
+      }
+    },
+
+    {
+      "title": "PCV valve mempengaruhi idle mesin",
+      "hook": "Idle tidak stabil belum tentu injector.",
+      "fact": "PCV valve mengatur sirkulasi uap gas dari mesin ke intake.",
+      "lines": [
+        "Kalau macet, idle bisa naik turun.",
+        "Tekanan di mesin ikut terganggu.",
+        "Komponen kecil tapi fungsinya penting."
+      ],
+      "cta": "Masalah idle bisa datang dari hal sepele.",
+      "bg": {
+        "query": "PCV valve car engine close up",
+        "variants": [
+          "engine crankcase",
+          "PCV hose"
+        ],
+        "avoid": ["portrait", "human"]
+      }
+    },
+
+    {
+      "title": "ATF panas mempercepat kerusakan transmisi",
+      "hook": "Transmisi otomatis sangat sensitif panas.",
+      "fact": "ATF bekerja optimal di suhu tertentu untuk melumasi dan mendinginkan transmisi.",
+      "lines": [
+        "Panas berlebih menurunkan kemampuan pelumasan.",
+        "Perpindahan gigi bisa jadi kasar.",
+        "Pendinginan ATF itu krusial."
+      ],
+      "cta": "ATF jarang dicek tapi mahal akibatnya.",
+      "bg": {
+        "query": "automatic transmission fluid car gearbox",
+        "variants": [
+          "automatic transmission",
+          "car transmission"
+        ],
+        "avoid": ["portrait", "cartoon"]
+      }
+    },
+
+    {
+      "title": "Roof rack bikin mobil lebih boros",
+      "hook": "Aksesori ini kelihatan sepele.",
+      "fact": "Roof rack meningkatkan hambatan udara saat mobil melaju.",
+      "lines": [
+        "Drag naik terutama di kecepatan tinggi.",
+        "Mesin perlu tenaga lebih besar.",
+        "Copot kalau tidak dipakai harian."
+      ],
+      "cta": "Aksesori juga bisa pengaruh konsumsi.",
+      "bg": {
+        "query": "car roof rack aerodynamic drag highway",
+        "variants": [
+          "car roof cargo",
+          "vehicle roof rack"
+        ],
+        "avoid": ["portrait", "people"]
+      }
+    },
+
+    {
+      "title": "Grounding buruk bikin sensor error",
+      "hook": "Masalah listrik tidak selalu komponen mahal.",
+      "fact": "Grounding buruk membuat tegangan tidak stabil ke sensor.",
+      "lines": [
+        "Error bisa muncul acak.",
+        "Sulit dilacak lewat scanner.",
+        "Cek kabel ground sering jadi solusi murah."
+      ],
+      "cta": "Kelistrikan dasar sering diremehkan.",
+      "bg": {
+        "query": "car electrical grounding engine bay",
+        "variants": [
+          "engine groundin",
+          "car electrical"
+        ],
+        "avoid": ["portrait", "hand selfie"]
+      }
+    },
+
+    {
+      "title": "Engine mounting aus bikin getar",
+      "hook": "Getaran tidak selalu dari mesin.",
+      "fact": "Engine mounting meredam getaran mesin ke bodi mobil.",
+      "lines": [
+        "Mounting aus bikin getar terasa ke kabin.",
+        "Bisa terasa saat idle atau pindah gigi.",
+        "Sering disangka masalah mesin."
+      ],
+      "cta": "Getaran halus jangan diabaikan.",
+      "bg": {
+        "query": "engine mount car vibration",
+        "variants": [
+          "engine mounting",
+          "engine bay"
+        ],
+        "avoid": ["portrait", "mechanic face"]
+      }
+    }
+  ]
+}
