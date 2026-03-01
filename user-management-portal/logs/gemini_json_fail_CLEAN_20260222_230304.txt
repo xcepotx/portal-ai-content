@@ -1,0 +1,11 @@
+{
+  "title": "Fakta Otomotif",
+  "seconds": 30,
+  "facts": [
+    {
+      "title": "Biaya Ganti Oli Bugatti",
+      "hook": "Tahukah anda biaya ganti oli Bugatti Veyron setara harga satu unit mobil sedan mewah.",
+      "fact": "Proses penggantian oli ini sangat rumit karena teknisi harus membongkar seluruh bagian belakang mobil untuk mencapai tangki oli yang tersembunyi di dalam mesin.",
+      "lines": [
+        "Selain biaya oli yang sangat mahal pengerjaan ini membutuhkan waktu yang cukup lama karena tingkat kerumitan teknis.",
+        "Pem

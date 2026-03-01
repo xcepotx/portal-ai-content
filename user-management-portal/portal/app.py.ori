@@ -1,0 +1,109 @@
+from __future__ import annotations
+
+import streamlit as st
+
+from . import auth
+from .tabs import dashboard, user_management, my_profile, yt_automation_pages, workspace_browser, ai_studio_pages, umkm_suite_pages
+
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from portal import auth
+
+def _build_ctx(services) -> dict:
+    user, role = auth.current_user()
+    paths = services.workspace.ensure(user, with_topics=True)
+    profile = services.profile_store.get_profile(user, decrypt_secrets=True)
+
+    if role == "demo":
+        rd = profile.setdefault("render_defaults", {})
+        rd["watermark_handles_csv"] = "@yourchannel"
+        rd["watermark_handle"] = "@yourchannel"
+        rd["watermark_opacity"] = 0.9
+        rd["watermark_position"] = "bottom-right"
+        profile["api_keys"] = {"elevenlabs": "", "gemini": "", "pexels": "", "pixabay": ""}
+
+    ctx = {
+        "services": services,   # ✅ penting biar _inject_profile_ctx jalan
+        "auth_user": user,
+        "auth_role": role,
+        "profile": profile,
+        "paths": paths,
+        "policy": {
+            "profile_readonly": (role == "demo"),
+            "force_watermark": (role == "demo"),
+            "forced_watermark_text": "@yourchannel" if role == "demo" else "",
+        },
+    }
+    return ctx
+
+def main() -> None:
+    st.set_page_config(page_title="User Management Portal", layout="wide")
+
+    services = auth.build_services()
+
+    if not auth.is_logged_in():
+        auth.render_login(services)
+        return
+
+    ctx = _build_ctx(services)
+    access = get_access(ctx)
+
+    # Sidebar navigation
+    with st.sidebar:
+        st.title("✅ USER MANAGEMENT")
+        st.caption(f"User: **{ctx['auth_user']}** ({ctx['auth_role']})")
+        if st.button("Logout"):
+            auth.logout()
+
+        # MENU DINAMIS BERDASARKAN ROLE
+        items = ["🧭 Dashboard", "📁 Workspace Browser"]
+
+        items = ["🧭 Dashboard", "📁 Workspace Browser"]
+
+        if ctx["auth_role"] == "admin":
+            items.insert(1, "👤 User Management")
+            items.insert(2, "⚙️ My Profile")
+            items.insert(3, "🧠 AI Studio")
+            items.insert(4, "🎬 YT Automation")
+            items.insert(4, "📦 UMKM Suite")
+
+        elif ctx["auth_role"] == "user":
+            items.insert(1, "⚙️ My Profile")
+            items.insert(2, "✨ AI Studio")
+            items.insert(3, "🎬 YT Automation")
+            items.insert(4, "📦 UMKM Suite")
+
+        elif ctx["auth_role"] == "demo":
+            items.insert(1, "✨ AI Studio")
+            items.insert(2, "🎬 YT Automation")
+            items.insert(4, "📦 UMKM Suite")
+
+        menu = st.radio("Menu", items, index=0)
+
+    # ROUTING
+    if menu == "🧭 Dashboard":
+        dashboard.render(ctx)
+
+    elif menu == "👤 User Management":
+        user_management.render(ctx, services)
+
+    elif menu == "⚙️ My Profile":
+        my_profile.render(ctx, services)
+
+    elif menu == "🎬 YT Automation":
+        yt_automation_pages.render(ctx)
+
+    elif menu == "🧠 AI Studio":
+        ai_studio_pages.render(ctx)
+
+    elif menu == "📦 UMKM Suite":
+        umkm_suite_pages.render(ctx)
+
+    elif menu == "📁 Workspace Browser":
+        workspace_browser.render(ctx)
+
+
+if __name__ == "__main__":
+    main()

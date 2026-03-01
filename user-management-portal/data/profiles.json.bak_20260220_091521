@@ -1,0 +1,195 @@
+{
+  "schema_version": 1,
+  "profiles": {
+    "admin": {
+      "api_keys": {
+        "elevenlabs": "",
+        "gemini": "",
+        "pexels": "",
+        "pixabay": ""
+      },
+      "render_defaults": {
+        "tts_engine": "gtts",
+        "voice_id": "",
+        "watermark_handle": "",
+        "watermark_opacity": 0.8,
+        "watermark_position": "bottom-right",
+        "hook_subtitle_default": true,
+        "watermark_handles_csv": "",
+        "hook_subtitles_csv": "",
+        "hook_sub": "FAKTA CEPAT"
+      },
+      "workspace": {
+        "default_topic": "faktaunik",
+        "custom_topic_folder": ""
+      },
+      "channel": {
+        "channel_name": "",
+        "channel_id": "",
+        "enable_upload": false,
+        "prime_time": "19:00",
+        "auto_hashtags": true,
+        "telegram_notif": false,
+        "default_publish_schedule": ""
+      },
+      "updated_at": "2026-02-20T07:22:57.678861+00:00"
+    },
+    "solachuddin": {
+      "api_keys": {
+        "elevenlabs": "enc:gAAAAABpmA2Mcp_1qZr9fSFuM11i51lfjN1mEQKMRyjH3Aqt6cl6L_JkG88ig6X3it0qzqyebAK99hlyT_lp0oJv_H7JHHxg2DQnOol0NMoqRH3IkzTaJzH1017vCg_s4YYS-w74pCX6VgLxmvFj5yi4V5J1jzVjEQ==",
+        "gemini": "",
+        "pexels": "",
+        "pixabay": ""
+      },
+      "render_defaults": {
+        "tts_engine": "elevenlabs",
+        "voice_id": "1k39YpzqXZn52BgyLyGO, 7VqWGAWwo2HMrylfKrcm",
+        "watermark_handle": "@NgelucuShop",
+        "watermark_opacity": 0.8,
+        "watermark_position": "bottom-right",
+        "hook_subtitle_default": true,
+        "watermark_handles_csv": "@AutoFactID, @NgelucuShop",
+        "hook_subtitles_csv": "FAKTA UNIK, FAKTA CEPAT",
+        "hook_sub": "FAKTA UNIK"
+      },
+      "workspace": {
+        "default_topic": "custom",
+        "custom_topic_folder": "technologi"
+      },
+      "channel": {
+        "channel_name": "",
+        "channel_id": "",
+        "enable_upload": false,
+        "prime_time": "19:00",
+        "auto_hashtags": true,
+        "telegram_notif": false,
+        "default_publish_schedule": ""
+      },
+      "updated_at": "2026-02-20T07:30:20.245509+00:00"
+    },
+    "yasses": {
+      "api_keys": {
+        "elevenlabs": "",
+        "gemini": "",
+        "pexels": "",
+        "pixabay": ""
+      },
+      "render_defaults": {
+        "tts_engine": "elevenlabs",
+        "voice_id": "",
+        "watermark_handle": "",
+        "watermark_opacity": 0.8,
+        "watermark_position": "bottom-right",
+        "hook_subtitle_default": true
+      },
+      "workspace": {
+        "default_topic": "faktaunik",
+        "custom_topic_folder": ""
+      },
+      "channel": {
+        "channel_name": "",
+        "channel_id": "",
+        "enable_upload": false,
+        "prime_time": "19:00",
+        "auto_hashtags": true,
+        "telegram_notif": false,
+        "default_publish_schedule": ""
+      },
+      "updated_at": "2026-02-19T04:05:22.974348+00:00"
+    },
+    "amad": {
+      "api_keys": {
+        "elevenlabs": "",
+        "gemini": "",
+        "pexels": "",
+        "pixabay": ""
+      },
+      "render_defaults": {
+        "tts_engine": "elevenlabs",
+        "voice_id": "",
+        "watermark_handle": "",
+        "watermark_opacity": 0.8,
+        "watermark_position": "bottom-right",
+        "hook_subtitle_default": true
+      },
+      "workspace": {
+        "default_topic": "faktaunik",
+        "custom_topic_folder": ""
+      },
+      "channel": {
+        "channel_name": "",
+        "channel_id": "",
+        "enable_upload": false,
+        "prime_time": "19:00",
+        "auto_hashtags": true,
+        "telegram_notif": false,
+        "default_publish_schedule": ""
+      },
+      "updated_at": "2026-02-19T04:05:33.328487+00:00"
+    },
+    "hagi": {
+      "api_keys": {
+        "elevenlabs": "",
+        "gemini": "",
+        "pexels": "",
+        "pixabay": ""
+      },
+      "render_defaults": {
+        "tts_engine": "elevenlabs",
+        "voice_id": "",
+        "watermark_handle": "",
+        "watermark_opacity": 0.8,
+        "watermark_position": "bottom-right",
+        "hook_subtitle_default": true,
+        "watermark_handles_csv": "",
+        "hook_subtitles_csv": "FAKTA UNIK, FAKTA CEPAT",
+        "hook_sub": "FAKTA UNIK"
+      },
+      "workspace": {
+        "default_topic": "custom",
+        "custom_topic_folder": "technologi"
+      },
+      "channel": {
+        "channel_name": "",
+        "channel_id": "",
+        "enable_upload": false,
+        "prime_time": "19:00",
+        "auto_hashtags": true,
+        "telegram_notif": false,
+        "default_publish_schedule": ""
+      },
+      "updated_at": "2026-02-20T07:50:01.486697+00:00"
+    },
+    "__global__": {
+      "api_keys": {
+        "elevenlabs": "",
+        "gemini": "enc:gAAAAABpmA2MIFPbubEEO5d_sbeD3Ed3lqSEZj5ZR-dWWFaOzrFHYEy0Q5KsP4UGtzqCjz0ygKf4uiJlWwRmpgRHPvjS-uG475HQl97sWGlXCYX4qSVpvNgrFjWl1vgdxQxFwQLxPHcM",
+        "pexels": "enc:gAAAAABpmA2M14kdOSqxlqWaFuucHxnWvoUzcYKaijwoHlA6s50dul0kt6sO4XRGyY-8ap_87EaetqCXpF5qWuCeCus5C34itweXeYABfGqNRZKt-wfPA2XKPaY-atfiDBQXxb2_5e141xxxOB6a2-A3HcTw5qhZEA==",
+        "pixabay": "enc:gAAAAABpmA2MF8sf2a8e-3cShnOK3hkIZDdNbfjIpTSt4ac78zoEzO-D-jSm1V6fPp3r-LzeNMn7YvUHbmQkeOL7HfYc72UVDL7KOKNyFcghXYUpxg54f3_G8pQ8xlqopYCEFE7rXaeA"
+      },
+      "render_defaults": {
+        "tts_engine": "elevenlabs",
+        "voice_id": "",
+        "watermark_handle": "",
+        "watermark_handle_csv": "",
+        "watermark_opacity": 0.8,
+        "watermark_position": "bottom-right",
+        "hook_subtitle_default": true
+      },
+      "workspace": {
+        "default_topic": "faktaunik",
+        "custom_topic_folder": ""
+      },
+      "channel": {
+        "channel_name": "",
+        "channel_id": "",
+        "enable_upload": false,
+        "prime_time": "19:00",
+        "auto_hashtags": true,
+        "telegram_notif": false,
+        "default_publish_schedule": ""
+      },
+      "updated_at": "2026-02-20T07:30:20.251872+00:00"
+    }
+  }
+}

@@ -1,0 +1,43 @@
+# --- Python ---
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+
+# --- venv ---
+venv/
+.venv/
+
+# --- env/secret ---
+.env
+.env.*
+*.key
+*.pem
+
+# --- outputs / cache (penting supaya repo gak bengkak) ---
+**/user_data/
+**/out/
+**/results/
+**/jobs/
+**/manifests/requests/
+**/_tmp/
+**/.cache/
+**/assets/*cache*/
+**/*.mp4
+**/*.mov
+**/*.mkv
+**/*.mp3
+**/*.wav
+**/*.srt
+**/*.zip
+**/*.log
+
+# Streamlit
+.streamlit/secrets.toml

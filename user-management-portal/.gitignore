@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+.streamlit/
+data/users.json
+data/profiles.json
+user_data/
+*.log
+

@@ -1,0 +1,10 @@
+{
+  "title": "Fakta Otomotif",
+  "seconds": 30,
+  "facts": [
+    {
+      "title": "Biaya Servis Bugatti",
+      "hook": "Tahukah anda bahwa biaya ganti oli mobil Bugatti Veyron bisa setara harga satu unit mobil baru.",
+      "fact": "Prosedur penggantian oli mesin Bugatti Veyron sangat rumit karena mekanik harus membongkar seluruh bagian belakang mobil tersebut secara hati-hati.",
+      "lines": [
+        "Proses ini memakan waktu sangat lama karena terdapat enam belas baut pembuangan oli yang letaknya sangat sulit dijangkau.",

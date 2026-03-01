@@ -1,0 +1,8 @@
+{
+  "title": "Fakta Otomotif",
+  "seconds": 30,
+  "facts": [
+    {
+      "title": "Pendingin Bugatti Chiron",
+      "hook": "Tahukah kamu mesin Bugatti Chiron menghasilkan panas luar biasa saat dipacu pada kecepatan yang tinggi?",
+      "fact": "Sistem pendingin mobil ini mampu memompa del
