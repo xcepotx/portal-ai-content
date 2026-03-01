@@ -45,3 +45,9 @@ venv/
 # secrets
 client_secret.json
 **/client_secret.json
+
+# secrets
+secrets/
+**/client_secret.json
+.env
+.env.*
