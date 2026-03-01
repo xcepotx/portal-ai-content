@@ -41,3 +41,7 @@ venv/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# secrets
+client_secret.json
+**/client_secret.json
