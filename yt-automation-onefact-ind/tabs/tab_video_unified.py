@@ -190,8 +190,6 @@ def _latest_output_from_this_tab(ws_root: Path) -> Path | None:
             mm = j.meta or {}
             if str(mm.get("source") or "") != "video_unified":
                 continue
-            if j.status != "done":
-                continue
             p = str(mm.get("output_video") or mm.get("raw_output_video") or "").strip()
             if p and Path(p).exists():
                 return Path(p).resolve()

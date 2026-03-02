@@ -280,6 +280,13 @@ class JobStore:
                     self._update(job_id, {"pid": p.pid, "pgid": p.pid})
                     rc = p.wait()
 
+                    raw_out = _detect_output_from_log(log_path)
+                    if raw_out:
+                        cur = self.get(job_id)
+                        mm = dict(cur.meta or {}) if cur else {}
+                        mm["raw_output_video"] = raw_out
+                        self._update(job_id, {"meta": mm})
+
                     if rc == 0:
                         post = (meta or {}).get("post") if isinstance(meta, dict) else None
                         topic = ""
@@ -287,14 +294,6 @@ class JobStore:
                             topic = str(post.get("topic") or "")
                         if not topic and isinstance(meta, dict):
                             topic = str(meta.get("topic") or "")
-
-                        # ✅ ambil output mp4 MILIK JOB INI dari log
-                        raw_out = _detect_output_from_log(log_path)
-                        if raw_out:
-                            cur = self.get(job_id)
-                            mm = dict(cur.meta or {}) if cur else {}
-                            mm["raw_output_video"] = raw_out
-                            self._update(job_id, {"meta": mm})
 
                         if isinstance(post, dict):
                             try:
@@ -313,8 +312,6 @@ class JobStore:
                                 tb = traceback.format_exc()
                                 _append_log(log_path, f"[POST][WARN] {type(e).__name__}: {e}")
                                 _append_log(log_path, tb)
-                                _append_log(log_path, f"[POST] FINAL_OUTPUT: {outp}")
-                                _append_log(log_path, f"OUTPUT_MP4: {outp}")
 
                     self._update(job_id, {
                         "rc": int(rc),

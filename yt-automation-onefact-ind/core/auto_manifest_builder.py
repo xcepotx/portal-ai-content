@@ -327,8 +327,6 @@ def build_manifest(
             max_line=4.0,
         )
 
-    print("[DBG] cap_lines type:", type(cap_lines[0]), "keys:", getattr(cap_lines[0], "__dict__", None))
-
     srt_path = write_srt(cap_lines, assets_dir / "captions.srt")
 
     cap_style = style_preset(settings.caption_style, int(settings.font_size))
@@ -394,6 +392,17 @@ def build_manifest(
         ],
         "assets_dir": str(assets_dir),
     }
+
+    # ✅ compatibility: biar main.py bisa baca orientation
+    manifest["orientation"] = settings.orientation
+    manifest.setdefault("video", {})["orientation"] = settings.orientation
+
+    # render sudah ada, jadi tinggal tambah
+    manifest.setdefault("render", {})
+    manifest["render"]["orientation"] = settings.orientation
+
+    # optional: penanda jenis
+    manifest["variant"] = "Long" if settings.orientation == "16:9" else "Short"
 
     # --- Avatar overlay (ONLY if enabled AND TTS audio exists) ---
     avatar_ok = bool(

@@ -1227,6 +1227,12 @@ def run_auto_stock(args, root: str, out_root: str, tts_dir: str, tmp_dir: str):
 
     m = load_auto_stock_manifest(args.manifest)
 
+    print("[AUTO-STOCK] manifest keys:", list(m.keys()))
+    print("[AUTO-STOCK] manifest video.orientation:", (m.get("video") or {}).get("orientation"))
+    print("[AUTO-STOCK] manifest render.orientation:", (m.get("render") or {}).get("orientation"))
+    print("[AUTO-STOCK] manifest orientation:", m.get("orientation"))
+    print("[AUTO-STOCK] manifest variant:", m.get("variant"), (m.get("render") or {}).get("variant"))
+
     # output folder: tetap pakai out_root seperti pipeline anda
     topic = (args.topic or "automotif").strip()
     out_topic_dir = os.path.join(out_root, topic)
@@ -1274,16 +1280,18 @@ def run_auto_stock(args, root: str, out_root: str, tts_dir: str, tmp_dir: str):
         srt_path = None
 
     # 4) Output file name + ukuran dari orientation manifest
-    video_cfg = (m.get("video") or {}) if isinstance(m, dict) else {}
+    output_cfg = (m.get("output") or {}) if isinstance(m, dict) else {}
+    video_cfg  = (m.get("video") or {}) if isinstance(m, dict) else {}
     render_cfg = (m.get("render") or {}) if isinstance(m, dict) else {}
 
     ori = str(
         video_cfg.get("orientation")
         or render_cfg.get("orientation")
+        or output_cfg.get("orientation")
+        or output_cfg.get("aspect")
         or m.get("orientation")
         or "9:16"
     ).strip()
-
     W, H = _size_from_orientation(ori)
 
     ts = m.get("created_at") or time.strftime("%Y%m%d_%H%M%S")
@@ -1305,60 +1313,64 @@ def run_auto_stock(args, root: str, out_root: str, tts_dir: str, tmp_dir: str):
 
     wm_text = "" if getattr(args, "no_watermark", False) else (getattr(args, "handle", "") or "").strip()
 
-    print("[AUTO-STOCK] watermark enabled:", bool(wm_text))
-    print("[AUTO-STOCK] handle:", wm_text)
-    print("[AUTO-STOCK] wm_opacity:", getattr(args, "watermark_opacity", None))
-    print("[AUTO-STOCK] wm_position:", getattr(args, "watermark_position", None))
-
     # --- BGM settings from manifest ---
     bgm_cfg = (m.get("bgm") or {})
     bgm_enabled = bool(bgm_cfg.get("enabled", True))
     bgm_volume  = float(bgm_cfg.get("volume", 0.20))
-    # AVATAR
+
+    # --- AVATAR ---
     avatar_cfg = ((m.get("render") or {}).get("avatar") or {})
     avatar_enabled = bool(avatar_cfg.get("enabled"))
     assets_dir = (m.get("assets_dir") or "")
 
-    out_final = build_onefact_video_stock_captions(
-        scenes=scenes,
-        out_mp4=out_mp4,
-        #target_size=target_size,
-        audio_path=(tts_files[0] if tts_files else None),
-        captions_srt=srt_path,
-        caption_font_size=cap_font,      # ✅ ADD
-        caption_position=cap_pos,        # ✅ ADD
-        hook_subtitle=getattr(args, "hook_subtitle", "FAKTA CEPAT"),
-        watermark_text=wm_text,
-        watermark_opacity=int(getattr(args, "watermark_opacity", 120)),
-        watermark_position=str(getattr(args, "watermark_position", "top-right")),
-        cinematic=bool(getattr(args, "cinematic", False)),
-        bgm_enabled=bgm_enabled,
-        bgm_volume=bgm_volume,
+    # ✅ BUILD kwargs dulu
+    kwargs = {
+        "scenes": scenes,
+        "out_mp4": out_mp4,
+        "audio_path": (tts_files[0] if tts_files else None),
+        "captions_srt": srt_path,
+        "caption_font_size": cap_font,
+        "caption_position": cap_pos,
+        "hook_subtitle": getattr(args, "hook_subtitle", "FAKTA CEPAT"),
+        "watermark_text": wm_text,
+        "watermark_opacity": int(getattr(args, "watermark_opacity", 120)),
+        "watermark_position": str(getattr(args, "watermark_position", "top-right")),
+        "cinematic": bool(getattr(args, "cinematic", False)),
+        "bgm_enabled": bgm_enabled,
+        "bgm_volume": bgm_volume,
+        "avatar_cfg": (avatar_cfg if avatar_enabled else None),
+        "assets_dir": assets_dir,
+    }
 
-        avatar_cfg=avatar_cfg if avatar_enabled else None,
-        assets_dir=assets_dir,
-    )
-
-    # ✅ kalau builder punya arg size/frame_size/target_size, kirim
+    # ✅ kalau builder support size, inject ukuran
     try:
         sig = inspect.signature(build_onefact_video_stock_captions)
-        if "frame_size" in sig.parameters:
+        params = sig.parameters
+        has_varkw = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+
+        # kalau fungsi TIDAK punya **kwargs, buang key yang tidak dikenal biar aman
+        if not has_varkw:
+            kwargs = {k: v for k, v in kwargs.items() if k in params}
+
+        if "frame_size" in params:
             kwargs["frame_size"] = (W, H)
-        elif "size" in sig.parameters:
+        elif "size" in params:
             kwargs["size"] = (W, H)
-        elif "target_size" in sig.parameters:
+        elif "target_size" in params:
             kwargs["target_size"] = (W, H)
     except Exception:
         pass
 
+    # ✅ CALL sekali saja
     out_final = build_onefact_video_stock_captions(**kwargs)
 
     if out_final:
         out_final = _force_mp4_size_ffmpeg(str(out_final), W, H)
 
-    print(f"OUTPUT_MP4: {out_final}", flush=True)
+    final_print = str(out_final or out_mp4)
+    print(f"OUTPUT_MP4: {final_print}", flush=True)
     print("PROGRESS: 100%")
-    print("Done:", out_mp4)
+    print("Done:", final_print)
 
 def purge_bg_cache_for_topic(assets_img_dir: str, topic: str) -> int:
     """
@@ -1680,8 +1692,3 @@ if __name__ == "__main__":
     main()
 
 
-# main.py (wrapper)
-from ytautomation.cli import main
-
-if __name__ == "__main__":
-    raise SystemExit(main())

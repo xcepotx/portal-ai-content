@@ -124,7 +124,7 @@ def _list_job_outputs(ws_root: Path) -> list[dict]:
     out = []
     for j in js.list_jobs():
         mm = j.meta or {}
-        p = str(mm.get("output_video") or "").strip()
+        p = str(mm.get("output_video") or mm.get("raw_output_video") or "").strip()
         if not p:
             continue
         vp = Path(p)
@@ -170,7 +170,7 @@ def _list_final_videos_from_jobs(ws_root: Path) -> list[dict]:
     rows: list[dict] = []
     for j in js.list_jobs():
         mm = j.meta or {}
-        p = str(mm.get("output_video") or "").strip()
+        p = str(mm.get("output_video") or mm.get("raw_output_video") or "").strip()
         if not p:
             continue
         vp = Path(p)

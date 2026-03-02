@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import streamlit as st
-
+from streamlit_autorefresh import st_autorefresh
 
 TERMINAL = {"done", "error", "stopped", "cancelled", "canceled"}
 RUNNING_STATES = {"running", "starting"}
@@ -263,9 +263,16 @@ def render(ctx: dict) -> None:
         return
 
     # autorefresh
-    st_autorefresh = getattr(st, "autorefresh", None)
-    if st_autorefresh:
-        st_autorefresh(interval=5000, key="sysmon_refresh")
+    cA, cB, cC = st.columns([1.2, 1.2, 4], vertical_alignment="center")
+    with cA:
+        auto_on = st.toggle("Auto refresh", value=True, key="sysmon_auto_on")
+    with cB:
+        refresh_s = st.slider("Interval (detik)", 2, 30, 5, 1, key="sysmon_refresh_s")
+    with cC:
+        st.caption("")
+
+    if auto_on:
+        st_autorefresh(interval=int(refresh_s * 1000), key="sysmon_refresh")
 
     # ===== Resources =====
     cpu = _cpu_percent()
@@ -311,7 +318,9 @@ def render(ctx: dict) -> None:
 
     # ===== Running jobs =====
     st.subheader("🏃 Running jobs")
-    if not running_alive:
+    running = running_alive  # ✅ FIX: variabel yang dipakai di bawah
+
+    if not running:
         st.info("Tidak ada job running.")
     else:
         rows = []
